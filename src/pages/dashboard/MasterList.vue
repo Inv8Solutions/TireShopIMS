@@ -167,7 +167,121 @@ function onDeleteProduct(product: Product) {
       />
     </div>
 
-    <div class="overflow-hidden rounded-2xl border border-slate-200">
+    <!-- Mobile cards -->
+    <div class="space-y-3 md:hidden">
+      <div v-for="p in filtered" :key="p.name" class="rounded-2xl border border-slate-200 bg-white p-4">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="truncate text-sm font-semibold text-slate-900">{{ p.name }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.category }} • {{ p.brand }} • {{ p.size }}</div>
+          </div>
+
+          <div class="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-blue-600 hover:bg-slate-50 hover:text-blue-700"
+              title="Edit"
+              @click="onEditProduct(p)"
+            >
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M12 20h9"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5Z"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+
+            <button
+              type="button"
+              class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-rose-600 hover:bg-slate-50 hover:text-rose-700"
+              title="Delete"
+              @click="onDeleteProduct(p)"
+            >
+              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M3 6h18"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M8 6V4h8v2"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M19 6l-1 14H6L5 6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M10 11v6M14 11v6"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantity</div>
+            <div class="mt-1 flex items-center gap-2">
+              <span
+                class="inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold"
+                :class="[qtyPill(p.quantity, p.minStock).bg, qtyPill(p.quantity, p.minStock).fg]"
+              >
+                {{ p.quantity }}
+              </span>
+              <span class="text-slate-500">(min {{ p.minStock }})</span>
+            </div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</div>
+            <div class="mt-1 font-medium text-slate-900">{{ formatMoney(p.price) }}</div>
+          </div>
+
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Cost</div>
+            <div class="mt-1 font-medium text-slate-900">{{ formatMoney(p.cost) }}</div>
+          </div>
+
+          <div class="text-right">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Supplier</div>
+            <div class="mt-1 truncate text-slate-700">{{ p.supplier }}</div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="filtered.length === 0"
+        class="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500"
+      >
+        No products found.
+      </div>
+    </div>
+
+    <!-- Desktop table -->
+    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
       <div class="overflow-x-auto">
         <table class="min-w-full">
           <thead class="bg-slate-50">

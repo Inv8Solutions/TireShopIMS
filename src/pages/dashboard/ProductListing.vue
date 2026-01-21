@@ -119,7 +119,51 @@ function formatPrice(v: number) {
       </div>
     </div>
 
-    <div class="overflow-hidden rounded-2xl border border-slate-200">
+    <!-- Mobile cards -->
+    <div class="space-y-3 md:hidden">
+      <div
+        v-for="p in filtered"
+        :key="p.name"
+        class="rounded-2xl border border-slate-200 bg-white p-4"
+      >
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <div class="truncate text-sm font-semibold text-slate-900">{{ p.name }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.brand }} • {{ p.category }} • {{ p.size }}</div>
+          </div>
+
+          <span
+            class="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+            :class="statusFor(p.available).pill"
+          >
+            {{ statusFor(p.available).label }}
+          </span>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Available</div>
+            <div class="mt-1 font-medium text-slate-900">{{ p.available }} <span class="text-slate-500">units</span></div>
+          </div>
+          <div class="text-right">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</div>
+            <a href="#" class="mt-1 inline-block font-semibold text-blue-600 hover:text-blue-700">
+              {{ formatPrice(p.price) }}
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div
+        v-if="filtered.length === 0"
+        class="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500"
+      >
+        No products found.
+      </div>
+    </div>
+
+    <!-- Desktop table -->
+    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
       <div class="overflow-x-auto">
         <table class="min-w-full">
           <thead class="bg-slate-50">
