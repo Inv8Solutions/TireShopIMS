@@ -1,22 +1,83 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+defineOptions({ name: 'DashboardSidebar' })
+
+import { computed } from 'vue'
+import { useRoute } from 'vue-router'
+
+type NavItem = {
+  label: string
+  to: string
+  icon: 'list' | 'grid'
+}
+
+const route = useRoute()
+
+const items = computed<NavItem[]>(() => [
+  { label: 'Product Listing', to: '/dashboard/products', icon: 'list' },
+  { label: 'Master List', to: '/dashboard/master', icon: 'grid' },
+])
+
+function isActive(to: string) {
+  return route.path === to || route.path.startsWith(`${to}/`)
+}
+
+function linkClass(to: string) {
+  return [
+    'group flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition',
+    isActive(to)
+      ? 'bg-blue-50 text-blue-700'
+      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+  ].join(' ')
+}
+</script>
 
 <template>
-  <div>
-    <h3>Sidebar</h3>
-    <nav>
-      <ul>
-        <li><a href="#">Dashboard</a></li>
-        <li><a href="#">Profile</a></li>
-        <li><a href="#">Settings</a></li>
-        <li><a href="#">Reports</a></li>
-        <li><a href="#">Users</a></li>
-        <li><a href="#">Analytics</a></li>
-        <li><a href="#">Messages</a></li>
-        <li><a href="#">Help</a></li>
-        <li><a href="#">Logout</a></li>
-      </ul>
-    </nav>
-  </div>
+  <aside class="w-72 shrink-0 p-6">
+    <div class="h-full rounded-2xl border border-slate-200 bg-white p-3">
+      <nav class="space-y-1">
+        <RouterLink v-for="item in items" :key="item.to" :to="item.to" :class="linkClass(item.to)">
+          <span
+            class="grid h-9 w-9 place-items-center rounded-xl"
+            :class="isActive(item.to) ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'"
+          >
+            <svg
+              v-if="item.icon === 'list'"
+              class="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg
+              v-else
+              class="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </span>
+          <span>{{ item.label }}</span>
+        </RouterLink>
+      </nav>
+    </div>
+  </aside>
 </template>
 
 <style scoped></style>

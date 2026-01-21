@@ -24,10 +24,15 @@ const login = async () => {
 
     console.log('Login successful!')
     router.push('/dashboard')
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Login error:', err)
 
-    switch (err.code) {
+    const code =
+      typeof err === 'object' && err !== null && 'code' in err
+        ? String((err as { code: unknown }).code)
+        : ''
+
+    switch (code) {
       case 'auth/invalid-email':
         error.value = 'Invalid email address'
         break
