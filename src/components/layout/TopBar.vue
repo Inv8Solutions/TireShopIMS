@@ -5,6 +5,8 @@ const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>()
 
 const userName = 'Admin User'
 const userRole = 'Admin'
+
+const logoUrl = new URL('../../assets/BasicVenturesLogo.png', import.meta.url).href
 </script>
 
 <template>
@@ -34,30 +36,12 @@ const userRole = 'Admin'
           </svg>
         </button>
 
-        <div class="grid h-10 w-10 place-items-center rounded-xl bg-blue-600">
-          <svg
-            class="h-6 w-6 text-white"
-            viewBox="0 0 24 24"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
-          >
-            <path
-              d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-            <path
-              d="M19.4 15a1.8 1.8 0 0 0 .36 1.98l.05.05a2.2 2.2 0 0 1-1.56 3.75 2.2 2.2 0 0 1-1.56-.65l-.05-.05a1.8 1.8 0 0 0-1.98-.36 1.8 1.8 0 0 0-1.1 1.64V21a2.2 2.2 0 0 1-4.4 0v-.07a1.8 1.8 0 0 0-1.1-1.64 1.8 1.8 0 0 0-1.98.36l-.05.05a2.2 2.2 0 1 1-3.11-3.11l.05-.05A1.8 1.8 0 0 0 4.6 15a1.8 1.8 0 0 0-1.64-1.1H2.9a2.2 2.2 0 0 1 0-4.4h.07A1.8 1.8 0 0 0 4.7 8.4a1.8 1.8 0 0 0-.36-1.98l-.05-.05a2.2 2.2 0 1 1 3.11-3.11l.05.05a1.8 1.8 0 0 0 1.98.36A1.8 1.8 0 0 0 10.5 2.07V2a2.2 2.2 0 0 1 4.4 0v.07a1.8 1.8 0 0 0 1.1 1.64 1.8 1.8 0 0 0 1.98-.36l.05-.05a2.2 2.2 0 1 1 3.11 3.11l-.05.05A1.8 1.8 0 0 0 19.4 9a1.8 1.8 0 0 0 1.64 1.1H21.1a2.2 2.2 0 0 1 0 4.4h-.07A1.8 1.8 0 0 0 19.4 15Z"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </div>
+        <img
+          :src="logoUrl"
+          alt="Basic Ventures logo"
+          class="h-10 w-auto shrink-0"
+          loading="eager"
+        />
 
         <div class="min-w-0 leading-tight">
           <div class="truncate text-sm font-semibold text-slate-900">Basic Ventures Tireshop</div>
