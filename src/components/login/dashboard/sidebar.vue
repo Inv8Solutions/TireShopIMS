@@ -4,6 +4,19 @@ defineOptions({ name: 'DashboardSidebar' })
 import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 
+const props = withDefaults(
+  defineProps<{
+    variant?: 'desktop' | 'mobile'
+    open?: boolean
+  }>(),
+  {
+    variant: 'desktop',
+    open: false,
+  },
+)
+
+const emit = defineEmits<{ (e: 'close'): void }>()
+
 type NavItem = {
   label: string
   to: string
@@ -29,13 +42,62 @@ function linkClass(to: string) {
       : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
   ].join(' ')
 }
+
+const asideClass = computed(() => {
+  if (props.variant === 'mobile') {
+    return [
+      'md:hidden fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw]',
+      'p-4 pt-5',
+      'transition-transform duration-200 ease-out',
+      props.open ? 'translate-x-0' : '-translate-x-full',
+    ].join(' ')
+  }
+
+  return 'hidden md:block w-72 shrink-0 p-6'
+})
+
+function onNavigate() {
+  if (props.variant === 'mobile') emit('close')
+}
 </script>
 
 <template>
-  <aside class="w-72 shrink-0 p-6">
+  <aside :class="asideClass" aria-label="Sidebar navigation">
     <div class="h-full rounded-2xl border border-slate-200 bg-white p-3">
+      <div v-if="variant === 'mobile'" class="mb-2 flex items-center justify-between px-1">
+        <div class="text-sm font-semibold text-slate-900">Menu</div>
+        <button
+          type="button"
+          class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50"
+          aria-label="Close sidebar"
+          @click="emit('close')"
+        >
+          <svg
+            class="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M18 6 6 18M6 6l12 12"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+
       <nav class="space-y-1">
-        <RouterLink v-for="item in items" :key="item.to" :to="item.to" :class="linkClass(item.to)">
+        <RouterLink
+          v-for="item in items"
+          :key="item.to"
+          :to="item.to"
+          :class="linkClass(item.to)"
+          @click="onNavigate"
+        >
           <span
             class="grid h-9 w-9 place-items-center rounded-xl"
             :class="isActive(item.to) ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'"
