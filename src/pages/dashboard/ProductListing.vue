@@ -1,71 +1,75 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { collection, onSnapshot, query as fsQuery, orderBy } from 'firebase/firestore'
+import { db } from '../../firebase' // firebase.ts is at src/firebase.ts
 
 type Product = {
-  name: string
+  id: string
   brand: string
-  category: string
   size: string
-  available: number
-  price: number
+  type: string
+  dot: string
+  location: string
+  quantity: number
+  purchaseCost: number
+  retailPrice: number
 }
 
-const query = ref('')
+// rename query -> search to avoid lint/name collisions
+const search = ref('')
 
-const products = ref<Product[]>([
-  {
-    name: 'Michelin Pilot Sport 4',
-    brand: 'Michelin',
-    category: 'Performance',
-    size: '225/45R17',
-    available: 45,
-    price: 185.99,
-  },
-  {
-    name: 'Bridgestone Turanza T005',
-    brand: 'Bridgestone',
-    category: 'Touring',
-    size: '205/55R16',
-    available: 12,
-    price: 142.5,
-  },
-  {
-    name: 'Goodyear Eagle F1',
-    brand: 'Goodyear',
-    category: 'Performance',
-    size: '245/40R18',
-    available: 8,
-    price: 210.0,
-  },
-  {
-    name: 'Continental PremiumContact 6',
-    brand: 'Continental',
-    category: 'Touring',
-    size: '195/65R15',
-    available: 35,
-    price: 128.75,
-  },
-  {
-    name: 'Pirelli Scorpion Verde',
-    brand: 'Pirelli',
-    category: 'SUV',
-    size: '235/55R19',
-    available: 5,
-    price: 195.0,
-  },
-])
+const products = ref<Product[]>([])
+const unsubscribe = ref<(() => void) | null>(null)
+const loading = ref(true)
+
+onMounted(() => {
+  unsubscribe.value = onSnapshot(
+    fsQuery(collection(db, 'products'), orderBy('brand')),
+    (snapshot) => {
+      products.value = snapshot.docs
+        .filter((doc) => {
+          const data = doc.data()
+          // Filter out empty documents - check if doc has meaningful data
+          return data && Object.keys(data).length > 0 && (data.brand || data.size)
+        })
+        .map((doc) => {
+          const data = doc.data()
+          return {
+            id: doc.id,
+            brand: data.brand ?? '',
+            size: data.size ?? '',
+            type: data.type ?? '',
+            dot: data.dot ?? '',
+            location: data.location ?? '',
+            quantity: typeof data.quantity === 'number' ? data.quantity : Number(data.quantity) || 0,
+            purchaseCost: typeof data.purchaseCost === 'number' ? data.purchaseCost : Number(data.purchaseCost) || 0,
+            retailPrice: typeof data.retailPrice === 'number' ? data.retailPrice : Number(data.retailPrice) || 0,
+          } as Product
+        })
+      loading.value = false
+    },
+    (error) => {
+      console.error('Error fetching products:', error)
+      loading.value = false
+    }
+  )
+})
+
+onUnmounted(() => {
+  if (unsubscribe.value) unsubscribe.value()
+})
 
 const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
+  const q = search.value.trim().toLowerCase()
   if (!q) return products.value
   return products.value.filter((p) => {
-    return [p.name, p.brand, p.category, p.size].some((v) => v.toLowerCase().includes(q))
+    return [p.brand, p.size, p.type, p.dot, p.location].some((v) => v.toLowerCase().includes(q))
   })
 })
 
-function statusFor(available: number) {
-  if (available <= 0) return { label: 'Out of Stock', pill: 'bg-rose-100 text-rose-700' }
-  if (available <= 10) return { label: 'Low Stock', pill: 'bg-rose-100 text-rose-700' }
+function statusFor(quantity: number) {
+  if (quantity <= 0) return { label: 'Out of Stock', pill: 'bg-rose-100 text-rose-700' }
+  if (quantity <= 10) return { label: 'Low Stock', pill: 'bg-rose-100 text-rose-700' }
   return { label: 'In Stock', pill: 'bg-emerald-100 text-emerald-700' }
 }
 
@@ -103,7 +107,7 @@ function formatPrice(v: number) {
         </span>
 
         <input
-          v-model="query"
+          v-model="search"
           type="text"
           placeholder="Search products..."
           class="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
@@ -121,34 +125,35 @@ function formatPrice(v: number) {
 
     <!-- Mobile cards -->
     <div class="space-y-3 md:hidden">
+      <div v-if="loading" class="text-center text-slate-500">Loading products...</div>
       <div
         v-for="p in filtered"
-        :key="p.name"
+        :key="p.id"
         class="rounded-2xl border border-slate-200 bg-white p-4"
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <div class="truncate text-sm font-semibold text-slate-900">{{ p.name }}</div>
-            <div class="mt-1 text-xs text-slate-500">{{ p.brand }} • {{ p.category }} • {{ p.size }}</div>
+            <div class="truncate text-sm font-semibold text-slate-900">{{ p.brand }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.type }} • {{ p.location }}</div>
           </div>
 
           <span
             class="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
-            :class="statusFor(p.available).pill"
+            :class="statusFor(p.quantity).pill"
           >
-            {{ statusFor(p.available).label }}
+            {{ statusFor(p.quantity).label }}
           </span>
         </div>
 
         <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div>
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Available</div>
-            <div class="mt-1 font-medium text-slate-900">{{ p.available }} <span class="text-slate-500">units</span></div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantity</div>
+            <div class="mt-1 font-medium text-slate-900">{{ p.quantity }} <span class="text-slate-500">units</span></div>
           </div>
           <div class="text-right">
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Retail Price</div>
             <a href="#" class="mt-1 inline-block font-semibold text-blue-600 hover:text-blue-700">
-              {{ formatPrice(p.price) }}
+              {{ formatPrice(p.retailPrice) }}
             </a>
           </div>
         </div>
@@ -168,44 +173,44 @@ function formatPrice(v: number) {
         <table class="min-w-full">
           <thead class="bg-slate-50">
             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th class="px-5 py-3">Product Name</th>
               <th class="px-5 py-3">Brand</th>
-              <th class="px-5 py-3">Category</th>
               <th class="px-5 py-3">Size</th>
-              <th class="px-5 py-3">Available</th>
-              <th class="px-5 py-3">Price</th>
-              <th class="px-5 py-3">Status</th>
+              <th class="px-5 py-3">Type</th>
+              <th class="px-5 py-3">DOT</th>
+              <th class="px-5 py-3">Location</th>
+              <th class="px-5 py-3">Quantity</th>
+              <th class="px-5 py-3">Purchase Cost</th>
+              <th class="px-5 py-3">Retail Price</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-200 bg-white">
-            <tr v-for="p in filtered" :key="p.name" class="text-sm text-slate-700">
-              <td class="px-5 py-4 font-medium text-slate-900">{{ p.name }}</td>
-              <td class="px-5 py-4">{{ p.brand }}</td>
-              <td class="px-5 py-4">{{ p.category }}</td>
+            <tr v-if="loading">
+              <td colspan="8" class="px-5 py-10 text-center text-sm text-slate-500">
+                Loading products...
+              </td>
+            </tr>
+            <tr v-for="p in filtered" :key="p.id" class="text-sm text-slate-700">
+              <td class="px-5 py-4 font-medium text-slate-900">{{ p.brand }}</td>
               <td class="px-5 py-4">{{ p.size }}</td>
+              <td class="px-5 py-4">{{ p.type }}</td>
+              <td class="px-5 py-4">{{ p.dot }}</td>
+              <td class="px-5 py-4">{{ p.location }}</td>
               <td class="px-5 py-4">
                 <div class="leading-tight">
-                  <div class="font-medium text-slate-900">{{ p.available }}</div>
+                  <div class="font-medium text-slate-900">{{ p.quantity }}</div>
                   <div class="text-xs text-slate-500">units</div>
                 </div>
               </td>
+              <td class="px-5 py-4">{{ formatPrice(p.purchaseCost) }}</td>
               <td class="px-5 py-4">
                 <a href="#" class="font-semibold text-blue-600 hover:text-blue-700">
-                  {{ formatPrice(p.price) }}
+                  {{ formatPrice(p.retailPrice) }}
                 </a>
-              </td>
-              <td class="px-5 py-4">
-                <span
-                  class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
-                  :class="statusFor(p.available).pill"
-                >
-                  {{ statusFor(p.available).label }}
-                </span>
               </td>
             </tr>
 
-            <tr v-if="filtered.length === 0">
-              <td colspan="7" class="px-5 py-10 text-center text-sm text-slate-500">
+            <tr v-if="!loading && filtered.length === 0">
+              <td colspan="8" class="px-5 py-10 text-center text-sm text-slate-500">
                 No products found.
               </td>
             </tr>
