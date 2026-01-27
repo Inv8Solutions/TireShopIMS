@@ -64,10 +64,10 @@ const login = async () => {
 
 <template>
   <div class="min-h-screen bg-slate-50">
-    <div class="mx-auto flex min-h-screen max-w-350 items-stretch">
+    <div class="mx-auto flex min-h-screen max-w-350 lg:max-w-none xl:max-w-[1400px] items-stretch">
       <!-- Left: brand panel (desktop) -->
-      <div class="hidden w-1/2 items-center justify-center bg-white md:flex">
-        <div class="max-w-md px-10">
+      <div class="hidden w-1/2 lg:w-3/5 items-center justify-center bg-white md:flex">
+        <div class="max-w-md px-6 md:px-8 lg:px-10">
           <img
             :src="logoUrl"
             alt="Basic Ventures logo"
@@ -82,7 +82,7 @@ const login = async () => {
       </div>
 
       <!-- Right: form -->
-      <div class="flex w-full items-center justify-center px-4 py-10 md:w-1/2 md:px-10">
+      <div class="flex w-full lg:w-2/5 items-center justify-center px-4 py-10 md:w-1/2 md:px-6 lg:px-10">
         <div class="w-full max-w-md">
           <!-- Mobile header -->
           <div class="mb-6 text-center md:hidden">

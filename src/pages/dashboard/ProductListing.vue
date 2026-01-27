@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { collection, onSnapshot, query as fsQuery, orderBy } from 'firebase/firestore'
 import { db } from '../../firebase' // firebase.ts is at src/firebase.ts
 
@@ -29,8 +29,7 @@ onMounted(() => {
       products.value = snapshot.docs
         .filter((doc) => {
           const data = doc.data()
-          // Filter out empty documents - check if doc has meaningful data
-          return data && Object.keys(data).length > 0 && (data.brand || data.size)
+          return data
         })
         .map((doc) => {
           const data = doc.data()
@@ -59,13 +58,47 @@ onUnmounted(() => {
   if (unsubscribe.value) unsubscribe.value()
 })
 
-const filtered = computed(() => {
+// DOM-based search function
+function searchTableRows() {
   const q = search.value.trim().toLowerCase()
-  if (!q) return products.value
-  return products.value.filter((p) => {
-    return [p.brand, p.size, p.type, p.dot, p.location].some((v) => v.toLowerCase().includes(q))
+
+  // Search mobile cards
+  const mobileCards = document.querySelectorAll('[data-product-card]')
+  mobileCards.forEach(card => {
+    const text = card.textContent?.toLowerCase() || ''
+    if (q === '' || text.includes(q)) {
+      (card as HTMLElement).style.display = ''
+    } else {
+      (card as HTMLElement).style.display = 'none'
+    }
   })
-})
+
+  // Search desktop table rows
+  const tableRows = document.querySelectorAll('[data-product-row]')
+  tableRows.forEach(row => {
+    const text = row.textContent?.toLowerCase() || ''
+    if (q === '' || text.includes(q)) {
+      (row as HTMLElement).style.display = ''
+    } else {
+      (row as HTMLElement).style.display = 'none'
+    }
+  })
+
+  // Update visible count
+  updateVisibleCount()
+}
+
+function updateVisibleCount() {
+  const visibleMobile = document.querySelectorAll('[data-product-card]:not([style*="display: none"])').length
+  const visibleDesktop = document.querySelectorAll('[data-product-row]:not([style*="display: none"])').length
+  const visibleCount = Math.max(visibleMobile, visibleDesktop)
+
+  // Update the count display
+  const countElement = document.querySelector('[data-product-count]')
+  if (countElement) {
+    countElement.textContent = `Showing ${visibleCount} of ${products.value.length} products`
+  }
+}
 
 function statusFor(quantity: number) {
   if (quantity <= 0) return { label: 'Out of Stock', pill: 'bg-rose-100 text-rose-700' }
@@ -74,7 +107,7 @@ function statusFor(quantity: number) {
 }
 
 function formatPrice(v: number) {
-  return v.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+  return v.toLocaleString(undefined, { style: 'currency', currency: 'PHP' })
 }
 </script>
 
@@ -111,25 +144,21 @@ function formatPrice(v: number) {
           type="text"
           placeholder="Search products..."
           class="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+          @input="searchTableRows"
         />
       </div>
 
-      <div class="w-40">
-        <input
-          type="text"
-          placeholder=""
-          class="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
-        />
-      </div>
+
     </div>
 
     <!-- Mobile cards -->
-    <div class="space-y-3 md:hidden">
+    <div class="space-y-3 lg:hidden">
       <div v-if="loading" class="text-center text-slate-500">Loading products...</div>
       <div
-        v-for="p in filtered"
+        v-for="p in products"
         :key="p.id"
         class="rounded-2xl border border-slate-200 bg-white p-4"
+        data-product-card
       >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
@@ -160,7 +189,7 @@ function formatPrice(v: number) {
       </div>
 
       <div
-        v-if="filtered.length === 0"
+        v-if="!loading && products.length === 0"
         class="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500"
       >
         No products found.
@@ -168,7 +197,7 @@ function formatPrice(v: number) {
     </div>
 
     <!-- Desktop table -->
-    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
+    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
       <div class="overflow-x-auto">
         <table class="min-w-full">
           <thead class="bg-slate-50">
@@ -189,7 +218,7 @@ function formatPrice(v: number) {
                 Loading products...
               </td>
             </tr>
-            <tr v-for="p in filtered" :key="p.id" class="text-sm text-slate-700">
+            <tr v-for="p in products" :key="p.id" class="text-sm text-slate-700" data-product-row>
               <td class="px-5 py-4 font-medium text-slate-900">{{ p.brand }}</td>
               <td class="px-5 py-4">{{ p.size }}</td>
               <td class="px-5 py-4">{{ p.type }}</td>
@@ -209,7 +238,7 @@ function formatPrice(v: number) {
               </td>
             </tr>
 
-            <tr v-if="!loading && filtered.length === 0">
+            <tr v-if="!loading && products.length === 0">
               <td colspan="8" class="px-5 py-10 text-center text-sm text-slate-500">
                 No products found.
               </td>
@@ -219,6 +248,6 @@ function formatPrice(v: number) {
       </div>
     </div>
 
-    <div class="text-xs text-slate-500">Showing {{ filtered.length }} of {{ products.length }} products</div>
+    <div class="text-xs text-slate-500" data-product-count>Showing {{ products.length }} of {{ products.length }} products</div>
   </div>
 </template>

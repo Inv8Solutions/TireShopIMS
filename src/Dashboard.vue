@@ -39,15 +39,15 @@ watch(
       @click="closeMobileSidebar"
     />
 
-    <div class="mx-auto flex max-w-350">
+    <div class="mx-auto flex max-w-350 lg:max-w-none xl:max-w-[1400px]">
       <!-- Desktop sidebar -->
       <Sidebar variant="desktop" />
 
       <!-- Mobile drawer sidebar -->
       <Sidebar variant="mobile" :open="mobileSidebarOpen" @close="closeMobileSidebar" />
 
-      <main class="flex-1 px-4 py-4 sm:px-6 sm:py-6">
-        <div class="rounded-2xl border border-slate-200 bg-white p-6">
+      <main class="flex-1 px-4 py-4 sm:px-6 sm:py-6 md:px-4 lg:px-6">
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 md:p-5 lg:p-6">
           <RouterView v-if="hasChildRoute" />
           <div v-else class="text-sm text-slate-500">Select a module from the sidebar.</div>
         </div>

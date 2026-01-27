@@ -1,108 +1,290 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { collection, onSnapshot, query as fsQuery, orderBy, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore'
+import { setPersistence, browserSessionPersistence, onAuthStateChanged, type User } from 'firebase/auth'
+import { db, auth } from '../../firebase'
 
 defineOptions({ name: 'ProductMasterList' })
 
 type Product = {
-  name: string
-  category: string
+  id: string
   brand: string
   size: string
+  type: string
+  dot: string
+  location: string
   quantity: number
-  minStock: number
-  price: number
-  cost: number
-  supplier: string
+  purchaseCost: number
+  retailPrice: number
 }
 
 const query = ref('')
+const products = ref<Product[]>([])
+const unsubscribe = ref<(() => void) | null>(null)
+const loading = ref(true)
 
-const products = ref<Product[]>([
-  {
-    name: 'Michelin Pilot Sport 4',
-    category: 'Performance',
-    brand: 'Michelin',
-    size: '225/45R17',
-    quantity: 45,
-    minStock: 20,
-    price: 185.99,
-    cost: 125.0,
-    supplier: 'Michelin Distributor',
-  },
-  {
-    name: 'Bridgestone Turanza T005',
-    category: 'Touring',
-    brand: 'Bridgestone',
-    size: '205/55R16',
-    quantity: 12,
-    minStock: 15,
-    price: 142.5,
-    cost: 95.0,
-    supplier: 'Bridgestone Corp',
-  },
-  {
-    name: 'Goodyear Eagle F1',
-    category: 'Performance',
-    brand: 'Goodyear',
-    size: '245/40R18',
-    quantity: 8,
-    minStock: 10,
-    price: 210.0,
-    cost: 145.0,
-    supplier: 'Goodyear Supply Co',
-  },
-  {
-    name: 'Continental PremiumContact 6',
-    category: 'Touring',
-    brand: 'Continental',
-    size: '195/65R15',
-    quantity: 35,
-    minStock: 20,
-    price: 128.75,
-    cost: 85.0,
-    supplier: 'Continental Direct',
-  },
-  {
-    name: 'Pirelli Scorpion Verde',
-    category: 'SUV',
-    brand: 'Pirelli',
-    size: '235/55R19',
-    quantity: 5,
-    minStock: 12,
-    price: 195.0,
-    cost: 130.0,
-    supplier: 'Pirelli Wholesale',
-  },
-])
+// Auth state
+const currentUser = ref<User | null>(null)
+const userEmail = ref<string>('')
 
-const filtered = computed(() => {
-  const q = query.value.trim().toLowerCase()
-  if (!q) return products.value
-  return products.value.filter((p) => {
-    return [p.name, p.category, p.brand, p.size, p.supplier].some((v) => v.toLowerCase().includes(q))
-  })
+// Modal state
+const isModalOpen = ref(false)
+const selectedProduct = ref<Product | null>(null)
+const editQuantity = ref(0)
+
+// Delete modal state
+const isDeleteModalOpen = ref(false)
+const productToDelete = ref<Product | null>(null)
+
+// Add product modal state
+const isAddModalOpen = ref(false)
+const newProduct = ref({
+  brand: '',
+  size: '',
+  type: '',
+  dot: '',
+  location: '',
+  quantity: 0,
+  purchaseCost: 0,
+  retailPrice: 0
 })
 
-function qtyPill(quantity: number, minStock: number) {
-  if (quantity <= minStock) return { bg: 'bg-rose-100', fg: 'text-rose-700' }
-  return { bg: 'bg-emerald-100', fg: 'text-emerald-700' }
+onMounted(async () => {
+  // Set up Firebase Auth persistence
+  try {
+    await setPersistence(auth, browserSessionPersistence)
+  } catch (error) {
+    console.error('Error setting persistence:', error)
+  }
+
+  // Monitor auth state changes
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser.value = user
+      userEmail.value = user.email || ''
+    } else {
+      currentUser.value = null
+      userEmail.value = ''
+    }
+  })
+
+  // Set up Firestore listener
+  unsubscribe.value = onSnapshot(
+    fsQuery(collection(db, 'products'), orderBy('brand')),
+    (snapshot) => {
+      products.value = snapshot.docs.map((doc) => {
+        const data = doc.data()
+        return {
+          id: doc.id,
+          brand: data.brand ?? '',
+          size: data.size ?? '',
+          type: data.type ?? '',
+          dot: data.dot ?? '',
+          location: data.location ?? '',
+          quantity: typeof data.quantity === 'number' ? data.quantity : Number(data.quantity) || 0,
+          purchaseCost: typeof data.purchaseCost === 'number' ? data.purchaseCost : Number(data.purchaseCost) || 0,
+          retailPrice: typeof data.retailPrice === 'number' ? data.retailPrice : Number(data.retailPrice) || 0,
+        } as Product
+      })
+      loading.value = false
+    },
+    (error) => {
+      console.error('Error fetching products:', error)
+      loading.value = false
+    }
+  )
+})
+
+onUnmounted(() => {
+  if (unsubscribe.value) unsubscribe.value()
+})
+
+// DOM-based search function
+function searchTableRows() {
+  const q = query.value.trim().toLowerCase()
+
+  // Search mobile cards
+  const mobileCards = document.querySelectorAll('[data-product-card]')
+  mobileCards.forEach(card => {
+    const text = card.textContent?.toLowerCase() || ''
+    if (q === '' || text.includes(q)) {
+      (card as HTMLElement).style.display = ''
+    } else {
+      (card as HTMLElement).style.display = 'none'
+    }
+  })
+
+  // Search desktop table rows
+  const tableRows = document.querySelectorAll('[data-product-row]')
+  tableRows.forEach(row => {
+    const text = row.textContent?.toLowerCase() || ''
+    if (q === '' || text.includes(q)) {
+      (row as HTMLElement).style.display = ''
+    } else {
+      (row as HTMLElement).style.display = 'none'
+    }
+  })
+
+  // Update visible count
+  updateVisibleCount()
 }
 
-function formatMoney(v: number) {
-  return v.toLocaleString(undefined, { style: 'currency', currency: 'USD' })
+function updateVisibleCount() {
+  const visibleMobile = document.querySelectorAll('[data-product-card]:not([style*="display: none"])').length
+  const visibleDesktop = document.querySelectorAll('[data-product-row]:not([style*="display: none"])').length
+  const visibleCount = Math.max(visibleMobile, visibleDesktop)
+
+  // Update the count display
+  const countElement = document.querySelector('[data-product-count]')
+  if (countElement) {
+    countElement.textContent = `Showing ${visibleCount} of ${products.value.length} products`
+  }
+}
+
+function statusFor(quantity: number) {
+  if (quantity <= 0) return { label: 'Out of Stock', pill: 'bg-rose-100 text-rose-700' }
+  if (quantity <= 10) return { label: 'Low Stock', pill: 'bg-rose-100 text-rose-700' }
+  return { label: 'In Stock', pill: 'bg-emerald-100 text-emerald-700' }
+}
+
+function formatPrice(v: number) {
+  return v.toLocaleString(undefined, { style: 'currency', currency: 'PHP' })
 }
 
 function onAddProduct() {
-  // UI-only for now
+  isAddModalOpen.value = true
 }
 
-function onEditProduct(product: Product) {
-  void product
+function openEditModal(product: Product) {
+  selectedProduct.value = product
+  editQuantity.value = product.quantity
+  isModalOpen.value = true
 }
 
-function onDeleteProduct(product: Product) {
-  void product
+function closeModal() {
+  isModalOpen.value = false
+  selectedProduct.value = null
+  editQuantity.value = 0
 }
+
+async function saveQuantity() {
+  if (!selectedProduct.value) return
+
+  try {
+    await updateDoc(doc(db, 'products', selectedProduct.value.id), {
+      quantity: editQuantity.value
+    })
+    closeModal()
+  } catch (error) {
+    console.error('Error updating quantity:', error)
+  }
+}
+
+function openDeleteModal(product: Product) {
+  productToDelete.value = product
+  isDeleteModalOpen.value = true
+}
+
+function closeDeleteModal() {
+  isDeleteModalOpen.value = false
+  productToDelete.value = null
+}
+
+async function deleteProduct() {
+  if (!productToDelete.value) return
+
+  try {
+    await deleteDoc(doc(db, 'products', productToDelete.value.id))
+    closeDeleteModal()
+  } catch (error) {
+    console.error('Error deleting product:', error)
+  }
+}
+
+function closeAddModal() {
+  isAddModalOpen.value = false
+  // Reset form
+  newProduct.value = {
+    brand: '',
+    size: '',
+    type: '',
+    dot: '',
+    location: '',
+    quantity: 0,
+    purchaseCost: 0,
+    retailPrice: 0
+  }
+}
+
+// Input sanitization functions
+function sanitizeText(text: string): string {
+  return text.trim().replace(/\s+/g, ' ') // Trim and normalize whitespace
+}
+
+function sanitizeNumber(value: number): number {
+  return isNaN(value) || value < 0 ? 0 : Math.round(value * 100) / 100 // Ensure positive number with 2 decimal places
+}
+
+function validateForm(): boolean {
+  const brand = sanitizeText(newProduct.value.brand)
+  const size = sanitizeText(newProduct.value.size)
+
+  if (!brand || brand.length < 2) {
+    alert('Brand must be at least 2 characters long')
+    return false
+  }
+
+  if (!size || size.length < 3) {
+    alert('Size must be at least 3 characters long')
+    return false
+  }
+
+  if (newProduct.value.quantity < 0) {
+    alert('Quantity cannot be negative')
+    return false
+  }
+
+  if (newProduct.value.purchaseCost < 0) {
+    alert('Purchase cost cannot be negative')
+    return false
+  }
+
+  if (newProduct.value.retailPrice < 0) {
+    alert('Retail price cannot be negative')
+    return false
+  }
+
+  return true
+}
+
+async function addProduct() {
+  if (!validateForm()) return
+
+  // Sanitize all inputs before saving
+  const sanitizedProduct = {
+    brand: sanitizeText(newProduct.value.brand),
+    size: sanitizeText(newProduct.value.size),
+    type: sanitizeText(newProduct.value.type),
+    dot: sanitizeText(newProduct.value.dot).toUpperCase(), // DOT codes are typically uppercase
+    location: sanitizeText(newProduct.value.location),
+    quantity: Math.max(0, Math.floor(newProduct.value.quantity)), // Ensure non-negative integer
+    purchaseCost: sanitizeNumber(newProduct.value.purchaseCost),
+    retailPrice: sanitizeNumber(newProduct.value.retailPrice)
+  }
+
+  try {
+    await addDoc(collection(db, 'products'), sanitizedProduct)
+    closeAddModal()
+  } catch (error) {
+    console.error('Error adding product:', error)
+    alert('Failed to add product. Please try again.')
+  }
+}
+
+// Export userEmail for use in header component
+defineExpose({
+  userEmail
+})
 </script>
 
 <template>
@@ -164,26 +346,33 @@ function onDeleteProduct(product: Product) {
         type="text"
         placeholder="Search products..."
         class="h-11 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-4 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+        @input="searchTableRows"
       />
     </div>
 
     <!-- Mobile cards -->
-    <div class="space-y-3 md:hidden">
-      <div v-for="p in filtered" :key="p.name" class="rounded-2xl border border-slate-200 bg-white p-4">
+    <div class="space-y-3 lg:hidden">
+      <div v-if="loading" class="text-center text-slate-500">Loading products...</div>
+      <div
+        v-for="p in products"
+        :key="p.id"
+        class="rounded-2xl border border-slate-200 bg-white p-4"
+        data-product-card
+      >
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
-            <div class="truncate text-sm font-semibold text-slate-900">{{ p.name }}</div>
-            <div class="mt-1 text-xs text-slate-500">{{ p.category }} • {{ p.brand }} • {{ p.size }}</div>
+            <div class="truncate text-sm font-semibold text-slate-900">{{ p.brand }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.type }} • {{ p.location }}</div>
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
             <button
               type="button"
-              class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-blue-600 hover:bg-slate-50 hover:text-blue-700"
-              title="Edit"
-              @click="onEditProduct(p)"
+              class="tooltip grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-blue-600 hover:bg-slate-50 hover:text-blue-700"
+              data-tooltip="Edit Quantity"
+              @click="openEditModal(p)"
             >
-              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d="M12 20h9"
                   stroke="currentColor"
@@ -203,11 +392,11 @@ function onDeleteProduct(product: Product) {
 
             <button
               type="button"
-              class="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-rose-600 hover:bg-slate-50 hover:text-rose-700"
-              title="Delete"
-              @click="onDeleteProduct(p)"
+              class="tooltip grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-rose-600 hover:bg-slate-50 hover:text-rose-700"
+              data-tooltip="Delete Product"
+              @click="openDeleteModal(p)"
             >
-              <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path
                   d="M3 6h18"
                   stroke="currentColor"
@@ -238,42 +427,32 @@ function onDeleteProduct(product: Product) {
                 />
               </svg>
             </button>
+
+            <span
+              class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold"
+              :class="statusFor(p.quantity).pill"
+            >
+              {{ statusFor(p.quantity).label }}
+            </span>
           </div>
         </div>
 
         <div class="mt-4 grid grid-cols-2 gap-3 text-sm">
           <div>
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantity</div>
-            <div class="mt-1 flex items-center gap-2">
-              <span
-                class="inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold"
-                :class="[qtyPill(p.quantity, p.minStock).bg, qtyPill(p.quantity, p.minStock).fg]"
-              >
-                {{ p.quantity }}
-              </span>
-              <span class="text-slate-500">(min {{ p.minStock }})</span>
-            </div>
+            <div class="mt-1 font-medium text-slate-900">{{ p.quantity }} <span class="text-slate-500">units</span></div>
           </div>
-
           <div class="text-right">
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Price</div>
-            <div class="mt-1 font-medium text-slate-900">{{ formatMoney(p.price) }}</div>
-          </div>
-
-          <div>
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Cost</div>
-            <div class="mt-1 font-medium text-slate-900">{{ formatMoney(p.cost) }}</div>
-          </div>
-
-          <div class="text-right">
-            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Supplier</div>
-            <div class="mt-1 truncate text-slate-700">{{ p.supplier }}</div>
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Retail Price</div>
+            <a href="#" class="mt-1 inline-block font-semibold text-blue-600 hover:text-blue-700">
+              {{ formatPrice(p.retailPrice) }}
+            </a>
           </div>
         </div>
       </div>
 
       <div
-        v-if="filtered.length === 0"
+        v-if="!loading && products.length === 0"
         class="rounded-2xl border border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500"
       >
         No products found.
@@ -281,50 +460,54 @@ function onDeleteProduct(product: Product) {
     </div>
 
     <!-- Desktop table -->
-    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 md:block">
+    <div class="hidden overflow-hidden rounded-2xl border border-slate-200 lg:block">
       <div class="overflow-x-auto">
         <table class="min-w-full">
           <thead class="bg-slate-50">
             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th class="px-5 py-3">Product Name</th>
-              <th class="px-5 py-3">Category</th>
               <th class="px-5 py-3">Brand</th>
               <th class="px-5 py-3">Size</th>
+              <th class="px-5 py-3">Type</th>
+              <th class="px-5 py-3">DOT</th>
+              <th class="px-5 py-3">Location</th>
               <th class="px-5 py-3">Quantity</th>
-              <th class="px-5 py-3">Min Stock</th>
-              <th class="px-5 py-3">Price</th>
-              <th class="px-5 py-3">Cost</th>
-              <th class="px-5 py-3">Supplier</th>
+              <th class="px-5 py-3">Purchase Cost</th>
+              <th class="px-5 py-3">Retail Price</th>
               <th class="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
 
           <tbody class="divide-y divide-slate-200 bg-white">
-            <tr v-for="p in filtered" :key="p.name" class="text-sm text-slate-700">
-              <td class="px-5 py-4 font-medium text-slate-900">{{ p.name }}</td>
-              <td class="px-5 py-4">{{ p.category }}</td>
-              <td class="px-5 py-4">{{ p.brand }}</td>
-              <td class="px-5 py-4">{{ p.size }}</td>
-              <td class="px-5 py-4">
-                <span
-                  class="inline-flex h-7 w-7 items-center justify-center rounded-full text-xs font-semibold"
-                  :class="[qtyPill(p.quantity, p.minStock).bg, qtyPill(p.quantity, p.minStock).fg]"
-                >
-                  {{ p.quantity }}
-                </span>
+            <tr v-if="loading">
+              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
+                Loading products...
               </td>
-              <td class="px-5 py-4">{{ p.minStock }}</td>
-              <td class="px-5 py-4">{{ formatMoney(p.price) }}</td>
-              <td class="px-5 py-4">{{ formatMoney(p.cost) }}</td>
-              <td class="px-5 py-4 text-slate-600">{{ p.supplier }}</td>
-
+            </tr>
+            <tr v-for="p in products" :key="p.id" class="text-sm text-slate-700" data-product-row>
+              <td class="px-5 py-4 font-medium text-slate-900">{{ p.brand }}</td>
+              <td class="px-5 py-4">{{ p.size }}</td>
+              <td class="px-5 py-4">{{ p.type }}</td>
+              <td class="px-5 py-4">{{ p.dot }}</td>
+              <td class="px-5 py-4">{{ p.location }}</td>
+              <td class="px-5 py-4">
+                <div class="leading-tight">
+                  <div class="font-medium text-slate-900">{{ p.quantity }}</div>
+                  <div class="text-xs text-slate-500">units</div>
+                </div>
+              </td>
+              <td class="px-5 py-4">{{ formatPrice(p.purchaseCost) }}</td>
+              <td class="px-5 py-4">
+                <a href="#" class="font-semibold text-blue-600 hover:text-blue-700">
+                  {{ formatPrice(p.retailPrice) }}
+                </a>
+              </td>
               <td class="px-5 py-4">
                 <div class="flex items-center justify-end gap-3">
                   <button
                     type="button"
-                    class="text-blue-600 hover:text-blue-700"
-                    title="Edit"
-                    @click="onEditProduct(p)"
+                    class="tooltip text-blue-600 hover:text-blue-700"
+                    data-tooltip="Edit Quantity"
+                    @click="openEditModal(p)"
                   >
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path
@@ -343,12 +526,11 @@ function onDeleteProduct(product: Product) {
                       />
                     </svg>
                   </button>
-
                   <button
                     type="button"
-                    class="text-rose-600 hover:text-rose-700"
-                    title="Delete"
-                    @click="onDeleteProduct(p)"
+                    class="tooltip text-rose-600 hover:text-rose-700"
+                    data-tooltip="Delete Product"
+                    @click="openDeleteModal(p)"
                   >
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                       <path
@@ -385,8 +567,8 @@ function onDeleteProduct(product: Product) {
               </td>
             </tr>
 
-            <tr v-if="filtered.length === 0">
-              <td colspan="10" class="px-5 py-10 text-center text-sm text-slate-500">
+            <tr v-if="!loading && products.length === 0">
+              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
                 No products found.
               </td>
             </tr>
@@ -395,6 +577,333 @@ function onDeleteProduct(product: Product) {
       </div>
     </div>
 
-    <div class="text-xs text-slate-500">Showing {{ filtered.length }} of {{ products.length }} products</div>
+    <div class="text-xs text-slate-500" data-product-count>Showing {{ products.length }} of {{ products.length }} products</div>
+  </div>
+
+  <!-- Edit Quantity Modal -->
+  <div v-if="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-screen items-center justify-center p-4">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black bg-opacity-25" @click="closeModal"></div>
+
+      <!-- Modal -->
+      <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-slate-900">Edit Quantity</h3>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600"
+            @click="closeModal"
+          >
+            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M18 6 6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div v-if="selectedProduct" class="space-y-4">
+          <div>
+            <div class="text-sm font-medium text-slate-900">{{ selectedProduct.brand }}</div>
+            <div class="text-sm text-slate-500">{{ selectedProduct.size }} • {{ selectedProduct.type }}</div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Quantity</label>
+            <input
+              v-model.number="editQuantity"
+              type="number"
+              min="0"
+              class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+              placeholder="Enter quantity"
+            />
+          </div>
+
+          <div class="flex gap-3 pt-4">
+            <button
+              type="button"
+              class="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              @click="closeModal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              @click="saveQuantity"
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Delete Confirmation Modal -->
+  <div v-if="isDeleteModalOpen" class="fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-screen items-center justify-center p-4">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black bg-opacity-25" @click="closeDeleteModal"></div>
+
+      <!-- Modal -->
+      <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-slate-900">Delete Product</h3>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600"
+            @click="closeDeleteModal"
+          >
+            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M18 6 6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <div v-if="productToDelete" class="space-y-4">
+          <div class="flex items-center gap-3">
+            <div class="grid h-12 w-12 place-items-center rounded-full bg-rose-100">
+              <svg class="h-6 w-6 text-rose-600" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                />
+              </svg>
+            </div>
+            <div>
+              <div class="text-sm font-medium text-slate-900">{{ productToDelete.brand }}</div>
+              <div class="text-sm text-slate-500">{{ productToDelete.size }} • {{ productToDelete.type }}</div>
+            </div>
+          </div>
+
+          <p class="text-sm text-slate-600">
+            Are you sure you want to delete this product? This action cannot be undone.
+          </p>
+
+          <div class="flex gap-3 pt-4">
+            <button
+              type="button"
+              class="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              @click="closeDeleteModal"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              class="flex-1 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700"
+              @click="deleteProduct"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Product Modal -->
+  <div v-if="isAddModalOpen" class="fixed inset-0 z-50 overflow-y-auto">
+    <div class="flex min-h-screen items-center justify-center p-4">
+      <!-- Backdrop -->
+      <div class="fixed inset-0 bg-black bg-opacity-25" @click="closeAddModal"></div>
+
+      <!-- Modal -->
+      <div class="relative bg-white rounded-2xl shadow-xl max-w-lg w-full p-6">
+        <div class="flex items-center justify-between mb-6">
+          <h3 class="text-lg font-semibold text-slate-900">Add New Product</h3>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600"
+            @click="closeAddModal"
+          >
+            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M18 6 6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+
+        <form @submit.prevent="addProduct" class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Brand</label>
+              <input
+                v-model="newProduct.brand"
+                type="text"
+                required
+                minlength="2"
+                maxlength="50"
+                pattern="[a-zA-Z0-9\s\-&.]+"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="Enter brand"
+                title="Brand name (2-50 characters, letters, numbers, spaces, hyphens, ampersands, and periods only)"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Size</label>
+              <input
+                v-model="newProduct.size"
+                type="text"
+                required
+                minlength="3"
+                maxlength="20"
+                pattern="[0-9/\-RZ\s]+"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="e.g., 225/45R17"
+                title="Tire size (3-20 characters, numbers, slash, hyphen, R, Z only)"
+              />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Type</label>
+              <input
+                v-model="newProduct.type"
+                type="text"
+                maxlength="30"
+                pattern="[a-zA-Z0-9\s\-]+"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="e.g., All-Season, Winter"
+                title="Tire type (up to 30 characters, letters, numbers, spaces, hyphens only)"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">DOT</label>
+              <input
+                v-model="newProduct.dot"
+                type="text"
+                maxlength="15"
+                pattern="[A-Z0-9]+"
+                style="text-transform: uppercase"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="e.g., DOT1234"
+                title="DOT code (up to 15 characters, uppercase letters and numbers only)"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Location</label>
+            <input
+              v-model="newProduct.location"
+              type="text"
+              maxlength="50"
+              pattern="[a-zA-Z0-9\s\-#.]+"
+              class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+              placeholder="e.g., Warehouse A, Shelf B-3"
+              title="Storage location (up to 50 characters, letters, numbers, spaces, hyphens, hash, periods only)"
+            />
+          </div>
+
+          <div class="grid grid-cols-3 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Quantity</label>
+              <input
+                v-model.number="newProduct.quantity"
+                type="number"
+                min="0"
+                max="99999"
+                required
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="0"
+                title="Quantity in stock (0-99999)"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Purchase Cost</label>
+              <input
+                v-model.number="newProduct.purchaseCost"
+                type="number"
+                min="0"
+                max="99999.99"
+                step="0.01"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="0.00"
+                title="Purchase cost per unit ($0.00-$99999.99)"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Retail Price</label>
+              <input
+                v-model.number="newProduct.retailPrice"
+                type="number"
+                min="0"
+                max="99999.99"
+                step="0.01"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="0.00"
+                title="Retail price per unit ($0.00-$99999.99)"
+              />
+            </div>
+          </div>
+
+          <div class="flex gap-3 pt-6">
+            <button
+              type="button"
+              class="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              @click="closeAddModal"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              Add Product
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   </div>
 </template>
+
+<style scoped>
+.tooltip {
+  position: relative;
+}
+
+.tooltip::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: white;
+  background-color: #1f2937;
+  border-radius: 4px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+  white-space: nowrap;
+  z-index: 50;
+}
+
+.tooltip:hover::before {
+  opacity: 1;
+}
+</style>

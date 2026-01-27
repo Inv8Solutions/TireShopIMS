@@ -53,7 +53,7 @@ const asideClass = computed(() => {
     ].join(' ')
   }
 
-  return 'hidden md:block w-72 shrink-0 p-6'
+  return 'hidden md:block w-60 lg:w-72 shrink-0 p-4 lg:p-6'
 })
 
 function onNavigate() {

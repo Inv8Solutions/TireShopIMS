@@ -1,17 +1,59 @@
 <script setup lang="ts">
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { setPersistence, browserSessionPersistence, onAuthStateChanged, signOut, type User } from 'firebase/auth'
+import { auth } from '../../firebase'
+
 defineOptions({ name: 'AppTopBar' })
 
 const emit = defineEmits<{ (e: 'toggle-sidebar'): void }>()
+const router = useRouter()
 
-const userName = 'Admin User'
-const userRole = 'Admin'
+// Auth state
+const currentUser = ref<User | null>(null)
+const userName = ref('Admin User')
+const userRole = ref('Admin')
 
 const logoUrl = new URL('../../assets/BasicVenturesLogo.png', import.meta.url).href
+
+onMounted(async () => {
+  // Set up Firebase Auth persistence
+  try {
+    await setPersistence(auth, browserSessionPersistence)
+  } catch (error) {
+    console.error('Error setting persistence:', error)
+  }
+
+  // Monitor auth state changes
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      currentUser.value = user
+      userName.value = user.email || 'Admin User'
+      userRole.value = 'Admin'
+    } else {
+      currentUser.value = null
+      userName.value = 'Admin User'
+      userRole.value = 'Admin'
+    }
+  })
+})
+
+// Logout function
+async function handleLogout() {
+  try {
+    await signOut(auth)
+    // Redirect to root page
+    await router.push('/')
+  } catch (error) {
+    console.error('Error signing out:', error)
+    alert('Failed to sign out. Please try again.')
+  }
+}
 </script>
 
 <template>
   <header class="h-16 w-full border-b border-slate-200 bg-white">
-    <div class="mx-auto flex h-full max-w-350 items-center justify-between px-4 sm:px-6">
+    <div class="mx-auto flex h-full max-w-350 lg:max-w-none xl:max-w-[1400px] items-center justify-between px-4 sm:px-6">
       <div class="flex min-w-0 items-center gap-3">
         <button
           type="button"
@@ -45,12 +87,12 @@ const logoUrl = new URL('../../assets/BasicVenturesLogo.png', import.meta.url).h
 
         <div class="min-w-0 leading-tight">
           <div class="truncate text-sm font-semibold text-slate-900">Basic Ventures Tireshop</div>
-          <div class="hidden sm:block text-xs text-slate-500">Inventory Management System</div>
+          <div class="hidden sm:block md:text-xs lg:text-xs text-slate-500">Inventory Management System</div>
         </div>
       </div>
 
       <div class="flex items-center gap-2 sm:gap-4">
-        <div class="hidden sm:block text-right leading-tight">
+        <div class="hidden sm:block md:text-right leading-tight">
           <div class="text-sm font-medium text-slate-900">{{ userName }}</div>
           <div class="text-xs text-slate-500">{{ userRole }}</div>
         </div>
@@ -59,6 +101,7 @@ const logoUrl = new URL('../../assets/BasicVenturesLogo.png', import.meta.url).h
           type="button"
           class="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
           aria-label="Logout"
+          @click="handleLogout"
         >
           <svg
             class="h-4 w-4"
