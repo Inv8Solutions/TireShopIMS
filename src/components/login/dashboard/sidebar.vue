@@ -2,7 +2,9 @@
 defineOptions({ name: 'DashboardSidebar' })
 
 import { computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { signOut } from 'firebase/auth'
+import { auth } from '../../../firebase'
 
 const props = withDefaults(
   defineProps<{
@@ -24,6 +26,7 @@ type NavItem = {
 }
 
 const route = useRoute()
+const router = useRouter()
 
 const items = computed<NavItem[]>(() => [
   { label: 'Product Listing', to: '/dashboard/products', icon: 'list' },
@@ -58,6 +61,17 @@ const asideClass = computed(() => {
 
 function onNavigate() {
   if (props.variant === 'mobile') emit('close')
+}
+
+async function handleLogout() {
+  try {
+    await signOut(auth)
+    emit('close')
+    await router.push('/')
+  } catch (error) {
+    console.error('Error signing out:', error)
+    alert('Failed to sign out. Please try again.')
+  }
 }
 </script>
 
@@ -138,6 +152,37 @@ function onNavigate() {
           <span>{{ item.label }}</span>
         </RouterLink>
       </nav>
+      <div v-if="props.variant === 'mobile'" class="mt-4 border-t border-slate-100 pt-3 px-1">
+        <button
+          type="button"
+          class="w-full inline-flex items-center justify-start gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+          @click="handleLogout"
+        >
+          <svg
+            class="h-5 w-5"
+            viewBox="0 0 24 24"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <path
+              d="M10 16l-4-4m0 0l4-4m-4 4h10"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <path
+              d="M14 7a4 4 0 0 1 4 4v2a4 4 0 0 1-4 4"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span>Logout</span>
+        </button>
+      </div>
     </div>
   </aside>
 </template>

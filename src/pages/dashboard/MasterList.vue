@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { collection, onSnapshot, query as fsQuery, orderBy, doc, updateDoc, deleteDoc, addDoc } from 'firebase/firestore'
-import { setPersistence, browserSessionPersistence, onAuthStateChanged, type User } from 'firebase/auth'
+import { collection, onSnapshot, query as fsQuery, orderBy, doc, updateDoc, deleteDoc, addDoc, increment } from 'firebase/firestore'
+import { setPersistence, browserSessionPersistence, onAuthStateChanged } from 'firebase/auth'
 import { db, auth } from '../../firebase'
 
 defineOptions({ name: 'ProductMasterList' })
@@ -13,6 +13,19 @@ type Product = {
   type: string
   dot: string
   location: string
+  plyRating?: string | number
+  quantity: number
+  purchaseCost: number
+  retailPrice: number
+}
+
+type NewProduct = {
+  brand: string
+  size: string
+  type: string
+  dot: string
+  location: string
+  plyRating?: string
   quantity: number
   purchaseCost: number
   retailPrice: number
@@ -24,26 +37,30 @@ const unsubscribe = ref<(() => void) | null>(null)
 const loading = ref(true)
 
 // Auth state
-const currentUser = ref<User | null>(null)
 const userEmail = ref<string>('')
 
 // Modal state
 const isModalOpen = ref(false)
 const selectedProduct = ref<Product | null>(null)
-const editQuantity = ref(0)
+const soldQuantity = ref(0)
 
 // Delete modal state
 const isDeleteModalOpen = ref(false)
 const productToDelete = ref<Product | null>(null)
 
+// Success indicator state
+const showSuccess = ref(false)
+const successMessage = ref('')
+
 // Add product modal state
 const isAddModalOpen = ref(false)
-const newProduct = ref({
+const newProduct = ref<NewProduct>({
   brand: '',
   size: '',
   type: '',
   dot: '',
   location: '',
+  plyRating: '',
   quantity: 0,
   purchaseCost: 0,
   retailPrice: 0
@@ -59,13 +76,7 @@ onMounted(async () => {
 
   // Monitor auth state changes
   onAuthStateChanged(auth, (user) => {
-    if (user) {
-      currentUser.value = user
-      userEmail.value = user.email || ''
-    } else {
-      currentUser.value = null
-      userEmail.value = ''
-    }
+    userEmail.value = user ? (user.email || '') : ''
   })
 
   // Set up Firestore listener
@@ -78,6 +89,7 @@ onMounted(async () => {
           id: doc.id,
           brand: data.brand ?? '',
           size: data.size ?? '',
+              plyRating: data.plyRating ?? '',
           type: data.type ?? '',
           dot: data.dot ?? '',
           location: data.location ?? '',
@@ -157,23 +169,37 @@ function onAddProduct() {
 
 function openEditModal(product: Product) {
   selectedProduct.value = product
-  editQuantity.value = product.quantity
+  soldQuantity.value = 0
   isModalOpen.value = true
 }
 
 function closeModal() {
   isModalOpen.value = false
   selectedProduct.value = null
-  editQuantity.value = 0
+  soldQuantity.value = 0
 }
 
 async function saveQuantity() {
   if (!selectedProduct.value) return
 
+  const sold = Math.max(0, Math.floor(soldQuantity.value || 0))
+  if (sold === 0) {
+    closeModal()
+    return
+  }
+
+  const available = typeof selectedProduct.value.quantity === 'number' ? selectedProduct.value.quantity : Number(selectedProduct.value.quantity) || 0
+  const actualSold = Math.min(sold, available)
+  const newQuantity = Math.max(0, available - actualSold)
+
   try {
     await updateDoc(doc(db, 'products', selectedProduct.value.id), {
-      quantity: editQuantity.value
+      quantity: newQuantity,
+      quantitySold: increment(actualSold)
     })
+    successMessage.value = `${actualSold} item(s) recorded as sold`
+    showSuccess.value = true
+    setTimeout(() => { showSuccess.value = false }, 3000)
     closeModal()
   } catch (error) {
     console.error('Error updating quantity:', error)
@@ -189,6 +215,7 @@ function closeDeleteModal() {
   isDeleteModalOpen.value = false
   productToDelete.value = null
 }
+
 
 async function deleteProduct() {
   if (!productToDelete.value) return
@@ -210,6 +237,7 @@ function closeAddModal() {
     type: '',
     dot: '',
     location: '',
+    plyRating: '',
     quantity: 0,
     purchaseCost: 0,
     retailPrice: 0
@@ -228,6 +256,10 @@ function sanitizeNumber(value: number): number {
 function validateForm(): boolean {
   const brand = sanitizeText(newProduct.value.brand)
   const size = sanitizeText(newProduct.value.size)
+  const type = sanitizeText(newProduct.value.type)
+  const dot = sanitizeText(newProduct.value.dot)
+  const ply = sanitizeText(String(newProduct.value.plyRating || ''))
+  const location = sanitizeText(newProduct.value.location)
 
   if (!brand || brand.length < 2) {
     alert('Brand must be at least 2 characters long')
@@ -239,18 +271,38 @@ function validateForm(): boolean {
     return false
   }
 
+  if (!type || type.length < 2) {
+    alert('Type must be at least 2 characters long')
+    return false
+  }
+
+  if (!dot || dot.length < 1) {
+    alert('DOT is required')
+    return false
+  }
+
+  if (!ply) {
+    alert('Ply Rating is required')
+    return false
+  }
+
+  if (!location || location.length < 1) {
+    alert('Location is required')
+    return false
+  }
+
   if (newProduct.value.quantity < 0) {
     alert('Quantity cannot be negative')
     return false
   }
 
-  if (newProduct.value.purchaseCost < 0) {
-    alert('Purchase cost cannot be negative')
+  if (newProduct.value.purchaseCost == null || newProduct.value.purchaseCost < 0) {
+    alert('Purchase cost is required and cannot be negative')
     return false
   }
 
-  if (newProduct.value.retailPrice < 0) {
-    alert('Retail price cannot be negative')
+  if (newProduct.value.retailPrice == null || newProduct.value.retailPrice < 0) {
+    alert('Retail price is required and cannot be negative')
     return false
   }
 
@@ -264,6 +316,7 @@ async function addProduct() {
   const sanitizedProduct = {
     brand: sanitizeText(newProduct.value.brand),
     size: sanitizeText(newProduct.value.size),
+    plyRating: sanitizeText(String(newProduct.value.plyRating || '')),
     type: sanitizeText(newProduct.value.type),
     dot: sanitizeText(newProduct.value.dot).toUpperCase(), // DOT codes are typically uppercase
     location: sanitizeText(newProduct.value.location),
@@ -293,6 +346,12 @@ defineExpose({
       <div>
         <h1 class="text-2xl font-semibold text-slate-900">Product Master List</h1>
         <p class="mt-1 text-sm text-slate-500">Add, edit, or remove products</p>
+      </div>
+      <!-- Success toast (centered) -->
+      <div v-if="showSuccess" class="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+        <div class="pointer-events-auto rounded-lg bg-emerald-600 px-6 py-3 text-sm font-medium text-white shadow-lg max-w-md mx-4 text-center">
+          {{ successMessage }}
+        </div>
       </div>
 
       <button
@@ -362,7 +421,7 @@ defineExpose({
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="truncate text-sm font-semibold text-slate-900">{{ p.brand }}</div>
-            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.type }} • {{ p.location }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.plyRating ?? '' }} • {{ p.type }} • {{ p.location }}</div>
           </div>
 
           <div class="flex shrink-0 items-center gap-2">
@@ -467,6 +526,7 @@ defineExpose({
             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th class="px-5 py-3">Brand</th>
               <th class="px-5 py-3">Size</th>
+              <th class="px-5 py-3">Ply Rating</th>
               <th class="px-5 py-3">Type</th>
               <th class="px-5 py-3">DOT</th>
               <th class="px-5 py-3">Location</th>
@@ -479,13 +539,14 @@ defineExpose({
 
           <tbody class="divide-y divide-slate-200 bg-white">
             <tr v-if="loading">
-              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
+              <td colspan="10" class="px-5 py-10 text-center text-sm text-slate-500">
                 Loading products...
               </td>
             </tr>
             <tr v-for="p in products" :key="p.id" class="text-sm text-slate-700" data-product-row>
               <td class="px-5 py-4 font-medium text-slate-900">{{ p.brand }}</td>
               <td class="px-5 py-4">{{ p.size }}</td>
+              <td class="px-5 py-4">{{ p.plyRating ?? '' }}</td>
               <td class="px-5 py-4">{{ p.type }}</td>
               <td class="px-5 py-4">{{ p.dot }}</td>
               <td class="px-5 py-4">{{ p.location }}</td>
@@ -568,7 +629,7 @@ defineExpose({
             </tr>
 
             <tr v-if="!loading && products.length === 0">
-              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
+              <td colspan="10" class="px-5 py-10 text-center text-sm text-slate-500">
                 No products found.
               </td>
             </tr>
@@ -581,6 +642,7 @@ defineExpose({
   </div>
 
   <!-- Edit Quantity Modal -->
+
   <div v-if="isModalOpen" class="fixed inset-0 z-50 overflow-y-auto">
     <div class="flex min-h-screen items-center justify-center p-4">
       <!-- Backdrop -->
@@ -614,14 +676,16 @@ defineExpose({
           </div>
 
           <div>
-            <label class="block text-sm font-medium text-slate-700 mb-2">Quantity</label>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Quantity Sold</label>
             <input
-              v-model.number="editQuantity"
+              v-model.number="soldQuantity"
               type="number"
+              :max="selectedProduct.quantity"
               min="0"
               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
-              placeholder="Enter quantity"
+              placeholder="Enter number sold"
             />
+            <div class="mt-2 text-xs text-slate-500">Current stock: {{ selectedProduct.quantity }} units</div>
           </div>
 
           <div class="flex gap-3 pt-4">
@@ -775,12 +839,13 @@ defineExpose({
             </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-4">
+          <div class="grid grid-cols-3 gap-4">
             <div>
               <label class="block text-sm font-medium text-slate-700 mb-2">Type</label>
               <input
                 v-model="newProduct.type"
                 type="text"
+                required
                 maxlength="30"
                 pattern="[a-zA-Z0-9\s\-]+"
                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
@@ -793,12 +858,26 @@ defineExpose({
               <input
                 v-model="newProduct.dot"
                 type="text"
+                required
                 maxlength="15"
                 pattern="[A-Z0-9]+"
                 style="text-transform: uppercase"
                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
                 placeholder="e.g., DOT1234"
                 title="DOT code (up to 15 characters, uppercase letters and numbers only)"
+              />
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-700 mb-2">Ply Rating</label>
+              <input
+                v-model="newProduct.plyRating"
+                type="text"
+                required
+                maxlength="10"
+                pattern="[0-9A-Za-z\s]+"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+                placeholder="e.g., 6 or 6 Ply"
+                title="Ply rating (numbers or short text)"
               />
             </div>
           </div>
@@ -808,6 +887,7 @@ defineExpose({
             <input
               v-model="newProduct.location"
               type="text"
+              required
               maxlength="50"
               pattern="[a-zA-Z0-9\s\-#.]+"
               class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
@@ -824,7 +904,7 @@ defineExpose({
                 type="number"
                 min="0"
                 max="99999"
-                required
+                  required
                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
                 placeholder="0"
                 title="Quantity in stock (0-99999)"
@@ -835,9 +915,10 @@ defineExpose({
               <input
                 v-model.number="newProduct.purchaseCost"
                 type="number"
-                min="0"
+                  min="0"
                 max="99999.99"
                 step="0.01"
+                  required
                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
                 placeholder="0.00"
                 title="Purchase cost per unit ($0.00-$99999.99)"
@@ -849,8 +930,9 @@ defineExpose({
                 v-model.number="newProduct.retailPrice"
                 type="number"
                 min="0"
-                max="99999.99"
+                  max="99999.99"
                 step="0.01"
+                  required
                 class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
                 placeholder="0.00"
                 title="Retail price per unit ($0.00-$99999.99)"

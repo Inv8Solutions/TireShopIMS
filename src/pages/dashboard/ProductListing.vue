@@ -10,6 +10,7 @@ type Product = {
   type: string
   dot: string
   location: string
+  plyRating?: string | number
   quantity: number
   purchaseCost: number
   retailPrice: number
@@ -37,6 +38,7 @@ onMounted(() => {
             id: doc.id,
             brand: data.brand ?? '',
             size: data.size ?? '',
+            plyRating: data.plyRating ?? '',
             type: data.type ?? '',
             dot: data.dot ?? '',
             location: data.location ?? '',
@@ -163,7 +165,7 @@ function formatPrice(v: number) {
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <div class="truncate text-sm font-semibold text-slate-900">{{ p.brand }}</div>
-            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.type }} • {{ p.location }}</div>
+            <div class="mt-1 text-xs text-slate-500">{{ p.size }} • {{ p.plyRating ?? '' }} • {{ p.type }} • {{ p.location }}</div>
           </div>
 
           <span
@@ -204,6 +206,7 @@ function formatPrice(v: number) {
             <tr class="text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th class="px-5 py-3">Brand</th>
               <th class="px-5 py-3">Size</th>
+              <th class="px-5 py-3">Ply Rating</th>
               <th class="px-5 py-3">Type</th>
               <th class="px-5 py-3">DOT</th>
               <th class="px-5 py-3">Location</th>
@@ -214,13 +217,14 @@ function formatPrice(v: number) {
           </thead>
           <tbody class="divide-y divide-slate-200 bg-white">
             <tr v-if="loading">
-              <td colspan="8" class="px-5 py-10 text-center text-sm text-slate-500">
+              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
                 Loading products...
               </td>
             </tr>
             <tr v-for="p in products" :key="p.id" class="text-sm text-slate-700" data-product-row>
               <td class="px-5 py-4 font-medium text-slate-900">{{ p.brand }}</td>
               <td class="px-5 py-4">{{ p.size }}</td>
+              <td class="px-5 py-4">{{ p.plyRating ?? '' }}</td>
               <td class="px-5 py-4">{{ p.type }}</td>
               <td class="px-5 py-4">{{ p.dot }}</td>
               <td class="px-5 py-4">{{ p.location }}</td>
@@ -239,7 +243,7 @@ function formatPrice(v: number) {
             </tr>
 
             <tr v-if="!loading && products.length === 0">
-              <td colspan="8" class="px-5 py-10 text-center text-sm text-slate-500">
+              <td colspan="9" class="px-5 py-10 text-center text-sm text-slate-500">
                 No products found.
               </td>
             </tr>
