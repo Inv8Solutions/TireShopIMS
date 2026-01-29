@@ -43,6 +43,11 @@ const userEmail = ref<string>('')
 const isModalOpen = ref(false)
 const selectedProduct = ref<Product | null>(null)
 const soldQuantity = ref(0)
+// Sold/added confirmation state and errors
+const isSoldConfirmOpen = ref(false)
+const soldError = ref('')
+const addedQuantity = ref(0)
+const addedError = ref('')
 
 // Delete modal state
 const isDeleteModalOpen = ref(false)
@@ -170,6 +175,10 @@ function onAddProduct() {
 function openEditModal(product: Product) {
   selectedProduct.value = product
   soldQuantity.value = 0
+  addedQuantity.value = 0
+  soldError.value = ''
+  addedError.value = ''
+  isSoldConfirmOpen.value = false
   isModalOpen.value = true
 }
 
@@ -177,33 +186,106 @@ function closeModal() {
   isModalOpen.value = false
   selectedProduct.value = null
   soldQuantity.value = 0
+  addedQuantity.value = 0
+  soldError.value = ''
+  addedError.value = ''
+  isSoldConfirmOpen.value = false
 }
 
 async function saveQuantity() {
+  // Validate inputs and show confirmation (do not perform update yet)
   if (!selectedProduct.value) return
 
   const sold = Math.max(0, Math.floor(soldQuantity.value || 0))
-  if (sold === 0) {
-    closeModal()
+  const added = Math.max(0, Math.floor(addedQuantity.value || 0))
+  const available = typeof selectedProduct.value.quantity === 'number' ? selectedProduct.value.quantity : Number(selectedProduct.value.quantity) || 0
+
+  // Reset errors
+  soldError.value = ''
+  addedError.value = ''
+
+  if (sold === 0 && added === 0) {
+    soldError.value = 'Enter sold items or added items to update stock'
     return
   }
 
+  // Do not allow both sold and added to be entered simultaneously
+  if (sold > 0 && added > 0) {
+    const msg = 'Enter either sold items OR added items, not both'
+    soldError.value = msg
+    addedError.value = msg
+    return
+  }
+
+  if (sold < 0) {
+    soldError.value = 'Sold quantity cannot be negative'
+    return
+  }
+
+  if (added < 0) {
+    addedError.value = 'Added quantity cannot be negative'
+    return
+  }
+
+  if (sold > available) {
+    soldError.value = `Cannot record ${sold} sold — only ${available} in stock`
+    return
+  }
+
+  // Inputs valid — open confirmation modal
+  isSoldConfirmOpen.value = true
+}
+
+async function confirmSold() {
+  if (!selectedProduct.value) return
+
+  const sold = Math.max(0, Math.floor(soldQuantity.value || 0))
+  const added = Math.max(0, Math.floor(addedQuantity.value || 0))
   const available = typeof selectedProduct.value.quantity === 'number' ? selectedProduct.value.quantity : Number(selectedProduct.value.quantity) || 0
+
+  // Defensive checks (should be caught earlier in saveQuantity)
+  if (sold === 0 && added === 0) return
+  if (sold > 0 && added > 0) {
+    const msg = 'Enter either sold items OR added items, not both'
+    soldError.value = msg
+    addedError.value = msg
+    isSoldConfirmOpen.value = false
+    return
+  }
+
+  if (sold > available) {
+    soldError.value = `Cannot record ${sold} sold — only ${available} in stock`
+    isSoldConfirmOpen.value = false
+    return
+  }
+
   const actualSold = Math.min(sold, available)
-  const newQuantity = Math.max(0, available - actualSold)
+  const actualAdded = Math.max(0, added)
+  const newQuantity = Math.max(0, available - actualSold + actualAdded)
 
   try {
-    await updateDoc(doc(db, 'products', selectedProduct.value.id), {
-      quantity: newQuantity,
-      quantitySold: increment(actualSold)
-    })
-    successMessage.value = `${actualSold} item(s) recorded as sold`
+    const updatePayload: Record<string, unknown> = { quantity: newQuantity }
+    if (actualSold > 0) (updatePayload as Record<string, unknown>).quantitySold = increment(actualSold)
+    await updateDoc(doc(db, 'products', selectedProduct.value.id), updatePayload)
+
+    const msgParts: string[] = []
+    if (actualSold > 0) msgParts.push(`${actualSold} sold`)
+    if (actualAdded > 0) msgParts.push(`${actualAdded} added`)
+
+    successMessage.value = `${msgParts.join(' and ')} — stock updated`
     showSuccess.value = true
     setTimeout(() => { showSuccess.value = false }, 3000)
+    isSoldConfirmOpen.value = false
     closeModal()
   } catch (error) {
     console.error('Error updating quantity:', error)
+    alert('Failed to update stock. Please try again.')
+    isSoldConfirmOpen.value = false
   }
+}
+
+function cancelSoldConfirm() {
+  isSoldConfirmOpen.value = false
 }
 
 function openDeleteModal(product: Product) {
@@ -686,6 +768,56 @@ defineExpose({
               placeholder="Enter number sold"
             />
             <div class="mt-2 text-xs text-slate-500">Current stock: {{ selectedProduct.quantity }} units</div>
+            <div v-if="soldError" class="mt-2 text-xs text-rose-600">{{ soldError }}</div>
+          </div>
+
+          <div>
+            <label class="block text-sm font-medium text-slate-700 mb-2">Quantity Added</label>
+            <input
+              v-model.number="addedQuantity"
+              type="number"
+              min="0"
+              class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm focus:border-blue-300 focus:ring-4 focus:ring-blue-100 outline-none"
+              placeholder="Enter number to add"
+            />
+            <div v-if="addedError" class="mt-2 text-xs text-emerald-600">{{ addedError }}</div>
+          </div>
+
+          <!-- Adjust confirmation modal -->
+          <div v-if="isSoldConfirmOpen" class="fixed inset-0 z-50 overflow-y-auto">
+            <div class="flex min-h-screen items-center justify-center p-4">
+              <div class="fixed inset-0 bg-black bg-opacity-25" @click="cancelSoldConfirm"></div>
+              <div class="relative bg-white rounded-2xl shadow-xl max-w-md w-full p-6">
+                <div class="flex items-center justify-between mb-4">
+                  <h3 class="text-lg font-semibold text-slate-900">Confirm Stock Update</h3>
+                  <button type="button" class="text-slate-400 hover:text-slate-600" @click="cancelSoldConfirm">
+                    <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                      <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="space-y-4">
+                  <div>
+                    <div class="text-sm font-medium text-slate-900">{{ selectedProduct.brand }}</div>
+                    <div class="text-sm text-slate-500">{{ selectedProduct.size }} • {{ selectedProduct.type }}</div>
+                  </div>
+
+                  <p class="text-sm text-slate-600">
+                    Are you sure you want to record
+                    <span v-if="soldQuantity"> <strong>{{ soldQuantity }}</strong> sold</span>
+                    <span v-if="soldQuantity && addedQuantity"> and </span>
+                    <span v-if="addedQuantity"> <strong>{{ addedQuantity }}</strong> added</span>
+                    ? This will change stock from <strong>{{ selectedProduct.quantity }}</strong> to <strong>{{ Math.max(0, selectedProduct.quantity - (soldQuantity || 0) + (addedQuantity || 0)) }}</strong>.
+                  </p>
+
+                  <div class="flex gap-3 pt-4">
+                    <button type="button" class="flex-1 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" @click="cancelSoldConfirm">Cancel</button>
+                    <button type="button" class="flex-1 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700" @click="confirmSold">Confirm</button>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="flex gap-3 pt-4">
