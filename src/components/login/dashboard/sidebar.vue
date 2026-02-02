@@ -22,7 +22,7 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 type NavItem = {
   label: string
   to: string
-  icon: 'list' | 'grid'
+  icon: 'list' | 'grid' | 'chart'
 }
 
 const route = useRoute()
@@ -31,6 +31,7 @@ const router = useRouter()
 const items = computed<NavItem[]>(() => [
   { label: 'Product Listing', to: '/dashboard/products', icon: 'list' },
   { label: 'Master List', to: '/dashboard/master', icon: 'grid' },
+  { label: 'Analytics', to: '/dashboard/analytics', icon: 'chart' },
 ])
 
 function isActive(to: string) {
@@ -133,7 +134,7 @@ async function handleLogout() {
               />
             </svg>
             <svg
-              v-else
+              v-else-if="item.icon === 'grid'"
               class="h-5 w-5"
               viewBox="0 0 24 24"
               fill="none"
@@ -142,6 +143,22 @@ async function handleLogout() {
             >
               <path
                 d="M4 4h7v7H4V4Zm9 0h7v7h-7V4ZM4 13h7v7H4v-7Zm9 0h7v7h-7v-7Z"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+            <svg
+              v-else
+              class="h-5 w-5"
+              viewBox="0 0 24 24"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M3 3v5h5V3H3Zm8 0v10h5V3h-5Zm8 0v15h5V3h-5ZM3 13v8h5v-8H3Z"
                 stroke="currentColor"
                 stroke-width="2"
                 stroke-linecap="round"

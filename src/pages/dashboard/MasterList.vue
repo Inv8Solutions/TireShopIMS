@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { collection, onSnapshot, query as fsQuery, orderBy, doc, updateDoc, deleteDoc, addDoc, increment } from 'firebase/firestore'
+import { collection, onSnapshot, query as fsQuery, orderBy, doc, updateDoc, deleteDoc, addDoc, increment, serverTimestamp } from 'firebase/firestore'
 import { setPersistence, browserSessionPersistence, onAuthStateChanged } from 'firebase/auth'
 import { db, auth } from '../../firebase'
 
@@ -29,6 +29,41 @@ type NewProduct = {
   quantity: number
   purchaseCost: number
   retailPrice: number
+}
+
+type StockHistoryEntry = {
+  productId: string
+  productInfo: {
+    brand: string
+    size: string
+    type: string
+  }
+  action: 'sold' | 'added' | 'adjusted'
+  quantity: number
+  previousQuantity: number
+  newQuantity: number
+  timestamp: unknown
+  userEmail: string
+  notes?: string
+}
+
+type SalesEntry = {
+  productId: string
+  productInfo: {
+    brand: string
+    size: string
+    type: string
+    dot: string
+    location: string
+  }
+  quantitySold: number
+  unitPrice: number
+  totalAmount: number
+  saleDate: string // YYYY-MM-DD format for easy querying
+  timestamp: unknown
+  userEmail: string
+  purchaseCost: number
+  profit: number
 }
 
 const query = ref('')
@@ -262,30 +297,131 @@ async function confirmSold() {
   const actualSold = Math.min(sold, available)
   const actualAdded = Math.max(0, added)
   const newQuantity = Math.max(0, available - actualSold + actualAdded)
+  const currentDateTime = formatDateTime(new Date())
 
   try {
-    const updatePayload: Record<string, unknown> = { quantity: newQuantity }
+    // Update the product quantity
+    const updatePayload: Record<string, unknown> = {
+      quantity: newQuantity,
+      lastUpdated: serverTimestamp(),
+      lastUpdatedBy: userEmail.value
+    }
     if (actualSold > 0) (updatePayload as Record<string, unknown>).quantitySold = increment(actualSold)
+
     await updateDoc(doc(db, 'products', selectedProduct.value.id), updatePayload)
+
+    // Create stock history entries
+    const productInfo = {
+      brand: selectedProduct.value.brand,
+      size: selectedProduct.value.size,
+      type: selectedProduct.value.type
+    }
+
+    const extendedProductInfo = {
+      ...productInfo,
+      dot: selectedProduct.value.dot,
+      location: selectedProduct.value.location
+    }
+
+    if (actualSold > 0) {
+      // Add to stock history
+      await addStockHistoryEntry({
+        productId: selectedProduct.value.id,
+        productInfo,
+        action: 'sold',
+        quantity: actualSold,
+        previousQuantity: available,
+        newQuantity: available - actualSold,
+        userEmail: userEmail.value,
+        notes: `Stock sold - ${actualSold} units on ${currentDateTime}`
+      })
+
+      // Add to sales subcollection for analytics
+      const totalSaleAmount = actualSold * selectedProduct.value.retailPrice
+      const totalCost = actualSold * selectedProduct.value.purchaseCost
+      const profit = totalSaleAmount - totalCost
+
+      await addSalesEntry({
+        productId: selectedProduct.value.id,
+        productInfo: extendedProductInfo,
+        quantitySold: actualSold,
+        unitPrice: selectedProduct.value.retailPrice,
+        totalAmount: totalSaleAmount,
+        userEmail: userEmail.value,
+        purchaseCost: selectedProduct.value.purchaseCost,
+        profit: profit
+      })
+    }
+
+    if (actualAdded > 0) {
+      await addStockHistoryEntry({
+        productId: selectedProduct.value.id,
+        productInfo,
+        action: 'added',
+        quantity: actualAdded,
+        previousQuantity: available,
+        newQuantity: available + actualAdded,
+        userEmail: userEmail.value,
+        notes: `Stock added - ${actualAdded} units on ${currentDateTime}`
+      })
+    }
 
     const msgParts: string[] = []
     if (actualSold > 0) msgParts.push(`${actualSold} sold`)
     if (actualAdded > 0) msgParts.push(`${actualAdded} added`)
 
-    successMessage.value = `${msgParts.join(' and ')} — stock updated`
+    successMessage.value = `${msgParts.join(' and ')} — stock updated at ${currentDateTime}`
     showSuccess.value = true
     setTimeout(() => { showSuccess.value = false }, 3000)
     isSoldConfirmOpen.value = false
     closeModal()
   } catch (error) {
     console.error('Error updating quantity:', error)
-    alert('Failed to update stock. Please try again.')
+    alert(`Failed to update stock at ${currentDateTime}. Please try again.`)
     isSoldConfirmOpen.value = false
   }
 }
 
 function cancelSoldConfirm() {
   isSoldConfirmOpen.value = false
+}
+
+function formatDateTime(date: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short'
+  }).format(date)
+}
+
+async function addStockHistoryEntry(entry: Omit<StockHistoryEntry, 'timestamp'>) {
+  try {
+    await addDoc(collection(db, 'stockHistory'), {
+      ...entry,
+      timestamp: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error adding stock history entry:', error)
+    // Don't throw error to avoid breaking the main update flow
+  }
+}
+
+async function addSalesEntry(entry: Omit<SalesEntry, 'timestamp' | 'saleDate'>) {
+  try {
+    const today = new Date().toISOString().split('T')[0] as string // YYYY-MM-DD format
+    await addDoc(collection(db, 'sales'), {
+      ...entry,
+      saleDate: today,
+      timestamp: serverTimestamp()
+    })
+  } catch (error) {
+    console.error('Error adding sales entry:', error)
+    // Don't throw error to avoid breaking the main update flow
+  }
 }
 
 function openDeleteModal(product: Product) {
@@ -302,11 +438,34 @@ function closeDeleteModal() {
 async function deleteProduct() {
   if (!productToDelete.value) return
 
+  const currentDateTime = formatDateTime(new Date())
+
   try {
+    // Add deletion history entry before deleting the product
+    await addStockHistoryEntry({
+      productId: productToDelete.value.id,
+      productInfo: {
+        brand: productToDelete.value.brand,
+        size: productToDelete.value.size,
+        type: productToDelete.value.type
+      },
+      action: 'adjusted',
+      quantity: productToDelete.value.quantity,
+      previousQuantity: productToDelete.value.quantity,
+      newQuantity: 0,
+      userEmail: userEmail.value,
+      notes: `Product deleted - ${productToDelete.value.quantity} units removed from inventory on ${currentDateTime}`
+    })
+
     await deleteDoc(doc(db, 'products', productToDelete.value.id))
+
+    successMessage.value = `Product deleted successfully at ${currentDateTime}`
+    showSuccess.value = true
+    setTimeout(() => { showSuccess.value = false }, 3000)
     closeDeleteModal()
   } catch (error) {
     console.error('Error deleting product:', error)
+    alert(`Failed to delete product at ${currentDateTime}. Please try again.`)
   }
 }
 
@@ -404,15 +563,42 @@ async function addProduct() {
     location: sanitizeText(newProduct.value.location),
     quantity: Math.max(0, Math.floor(newProduct.value.quantity)), // Ensure non-negative integer
     purchaseCost: sanitizeNumber(newProduct.value.purchaseCost),
-    retailPrice: sanitizeNumber(newProduct.value.retailPrice)
+    retailPrice: sanitizeNumber(newProduct.value.retailPrice),
+    createdAt: serverTimestamp(),
+    createdBy: userEmail.value,
+    lastUpdated: serverTimestamp(),
+    lastUpdatedBy: userEmail.value
   }
 
+  const currentDateTime = formatDateTime(new Date())
+
   try {
-    await addDoc(collection(db, 'products'), sanitizedProduct)
+    // Add the product
+    const docRef = await addDoc(collection(db, 'products'), sanitizedProduct)
+
+    // Add initial stock history entry
+    await addStockHistoryEntry({
+      productId: docRef.id,
+      productInfo: {
+        brand: sanitizedProduct.brand,
+        size: sanitizedProduct.size,
+        type: sanitizedProduct.type
+      },
+      action: 'added',
+      quantity: sanitizedProduct.quantity,
+      previousQuantity: 0,
+      newQuantity: sanitizedProduct.quantity,
+      userEmail: userEmail.value,
+      notes: `New product created with initial stock of ${sanitizedProduct.quantity} units on ${currentDateTime}`
+    })
+
+    successMessage.value = `Product added successfully at ${currentDateTime}`
+    showSuccess.value = true
+    setTimeout(() => { showSuccess.value = false }, 3000)
     closeAddModal()
   } catch (error) {
     console.error('Error adding product:', error)
-    alert('Failed to add product. Please try again.')
+    alert(`Failed to add product at ${currentDateTime}. Please try again.`)
   }
 }
 
