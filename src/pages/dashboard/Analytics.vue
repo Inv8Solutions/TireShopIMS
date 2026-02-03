@@ -60,6 +60,11 @@ const historyDateTo = ref('')
 const historySortBy = ref('timestamp')
 const historySortOrder = ref('desc')
 
+// Top selling products filters
+const topProductsBrandFilter = ref('')
+const topProductsSizeFilter = ref('')
+const topProductsTypeFilter = ref('')
+
 // Chart data for trend visualization
 const chartLabels = ref<string[]>([])
 const chartData = ref<number[]>([])
@@ -363,6 +368,75 @@ const availableUsers = computed(() => {
   return Array.from(users).sort()
 })
 
+// Get unique product attributes for top products filters
+const availableProductSizes = computed(() => {
+  const sizes = new Set(salesData.value.map(sale => sale.productInfo.size))
+  return Array.from(sizes).sort()
+})
+
+const availableProductTypes = computed(() => {
+  const types = new Set(salesData.value.map(sale => sale.productInfo.type))
+  return Array.from(types).sort()
+})
+
+// Top selling products analysis
+const topSellingProducts = computed(() => {
+  const filteredSales = getFilteredSales()
+  const productMap = new Map<string, {
+    brand: string
+    size: string
+    type: string
+    totalQuantity: number
+    totalRevenue: number
+    totalProfit: number
+    salesCount: number
+  }>()
+
+  filteredSales.forEach(sale => {
+    const productKey = `${sale.productInfo.brand}|${sale.productInfo.size}|${sale.productInfo.type}`
+    const existing = productMap.get(productKey) || {
+      brand: sale.productInfo.brand,
+      size: sale.productInfo.size,
+      type: sale.productInfo.type,
+      totalQuantity: 0,
+      totalRevenue: 0,
+      totalProfit: 0,
+      salesCount: 0
+    }
+
+    existing.totalQuantity += sale.quantitySold
+    existing.totalRevenue += sale.totalAmount
+    existing.totalProfit += sale.profit
+    existing.salesCount += 1
+    productMap.set(productKey, existing)
+  })
+
+  let products = Array.from(productMap.values())
+
+  // Apply filters
+  if (topProductsBrandFilter.value) {
+    products = products.filter(product =>
+      product.brand.toLowerCase().includes(topProductsBrandFilter.value.toLowerCase())
+    )
+  }
+
+  if (topProductsSizeFilter.value) {
+    products = products.filter(product =>
+      product.size.toLowerCase().includes(topProductsSizeFilter.value.toLowerCase())
+    )
+  }
+
+  if (topProductsTypeFilter.value) {
+    products = products.filter(product =>
+      product.type.toLowerCase().includes(topProductsTypeFilter.value.toLowerCase())
+    )
+  }
+
+  return products
+    .sort((a, b) => b.totalQuantity - a.totalQuantity)
+    .slice(0, 20) // Show more products when filtered
+})
+
 // Clear all history filters
 function clearHistoryFilters() {
   historyPeriodFilter.value = 'all'
@@ -372,6 +446,13 @@ function clearHistoryFilters() {
   historyDateTo.value = ''
   historySortBy.value = 'timestamp'
   historySortOrder.value = 'desc'
+}
+
+// Clear top products filters
+function clearTopProductsFilters() {
+  topProductsBrandFilter.value = ''
+  topProductsSizeFilter.value = ''
+  topProductsTypeFilter.value = ''
 }
 
 // Format timestamp for display
@@ -544,6 +625,226 @@ function getChartPath() {
         <!-- Chart labels -->
         <div class="mt-4 flex justify-between text-sm text-slate-600">
           <span v-for="label in chartLabels" :key="label">{{ label }}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Selling Products -->
+    <div class="rounded-xl border border-slate-200 bg-white">
+      <div class="border-b border-slate-200 p-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-slate-900">Top Selling Products</h2>
+            <p class="text-sm text-slate-600">Best performing products by quantity sold ({{ selectedPeriod === 'today' ? 'Today' : selectedPeriod === 'last7days' ? 'Last 7 days' : 'Last 30 days' }})</p>
+          </div>
+          <div class="flex gap-3">
+            <button
+              @click="clearTopProductsFilters"
+              class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+            >
+              Clear Filters
+            </button>
+            <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Export
+            </button>
+          </div>
+        </div>
+
+        <!-- Top Products Filters -->
+        <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <!-- Brand Filter -->
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Brand</label>
+            <select
+              v-model="topProductsBrandFilter"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="">All Brands</option>
+              <option v-for="brand in availableBrands" :key="brand" :value="brand">{{ brand }}</option>
+            </select>
+          </div>
+
+          <!-- Size Filter -->
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Size</label>
+            <select
+              v-model="topProductsSizeFilter"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="">All Sizes</option>
+              <option v-for="size in availableProductSizes" :key="size" :value="size">{{ size }}</option>
+            </select>
+          </div>
+
+          <!-- Type Filter -->
+          <div>
+            <label class="block text-xs font-medium text-slate-700 mb-1">Type</label>
+            <select
+              v-model="topProductsTypeFilter"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            >
+              <option value="">All Types</option>
+              <option v-for="type in availableProductTypes" :key="type" :value="type">{{ type }}</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="mt-4">
+          <div class="text-sm text-slate-600">
+            Showing {{ topSellingProducts.length.toLocaleString() }} products
+          </div>
+        </div>
+      </div>
+
+      <div v-if="loading" class="p-6">
+        <div class="flex items-center justify-center py-12">
+          <div class="text-slate-500">Loading top products...</div>
+        </div>
+      </div>
+
+      <div v-else-if="topSellingProducts.length === 0" class="p-6">
+        <div class="flex items-center justify-center py-12">
+          <div class="text-slate-500">No product sales data available for the selected period</div>
+        </div>
+      </div>
+
+      <div v-else class="overflow-x-auto">
+        <!-- Desktop Table -->
+        <table class="hidden w-full md:table">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Rank
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Product Details
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Total Sold
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Revenue
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Profit
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Sales Count
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Avg. per Sale
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 bg-white">
+            <tr v-for="(product, index) in topSellingProducts" :key="`${product.brand}-${product.size}-${product.type}`" class="hover:bg-slate-50">
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="flex items-center">
+                  <div class="text-lg font-bold" :class="{
+                    'text-amber-500': index === 0,
+                    'text-slate-400': index === 1,
+                    'text-amber-600': index === 2,
+                    'text-slate-600': index > 2
+                  }">
+                    {{ index + 1 }}
+                  </div>
+                  <div v-if="index < 3" class="ml-2">
+                    <svg v-if="index === 0" class="h-5 w-5 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                    <div v-else-if="index === 1" class="h-5 w-5 bg-slate-400 rounded-full"></div>
+                    <div v-else-if="index === 2" class="h-5 w-5 bg-amber-600 rounded-full"></div>
+                  </div>
+                </div>
+              </td>
+              <td class="px-6 py-4">
+                <div class="text-sm font-medium text-slate-900">
+                  {{ product.brand }} {{ product.size }}
+                </div>
+                <div class="text-xs text-slate-500">
+                  {{ product.type }}
+                </div>
+              </td>
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="text-sm font-medium text-slate-900">{{ product.totalQuantity.toLocaleString() }} units</div>
+              </td>
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="text-sm font-medium text-slate-900">₱{{ product.totalRevenue.toLocaleString() }}</div>
+              </td>
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="text-sm font-medium text-emerald-600">₱{{ product.totalProfit.toLocaleString() }}</div>
+                <div class="text-xs text-slate-500">
+                  {{ ((product.totalProfit / product.totalRevenue) * 100).toFixed(1) }}% margin
+                </div>
+              </td>
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="text-sm text-slate-900">{{ product.salesCount.toLocaleString() }} sales</div>
+              </td>
+              <td class="whitespace-nowrap px-6 py-4">
+                <div class="text-sm text-slate-900">{{ Math.round(product.totalQuantity / product.salesCount).toLocaleString() }} units</div>
+                <div class="text-xs text-slate-500">₱{{ Math.round(product.totalRevenue / product.salesCount).toLocaleString() }}</div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Mobile Cards -->
+        <div class="divide-y divide-slate-200 md:hidden">
+          <div v-for="(product, index) in topSellingProducts" :key="`${product.brand}-${product.size}-${product.type}`" class="p-4">
+            <div class="space-y-3">
+              <div class="flex items-start justify-between">
+                <div class="flex items-center min-w-0">
+                  <div class="text-lg font-bold mr-3" :class="{
+                    'text-amber-500': index === 0,
+                    'text-slate-400': index === 1,
+                    'text-amber-600': index === 2,
+                    'text-slate-600': index > 2
+                  }">
+                    {{ index + 1 }}
+                  </div>
+                  <div v-if="index < 3" class="mr-2">
+                    <svg v-if="index === 0" class="h-4 w-4 text-amber-400" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                    </svg>
+                    <div v-else-if="index === 1" class="h-4 w-4 bg-slate-400 rounded-full"></div>
+                    <div v-else-if="index === 2" class="h-4 w-4 bg-amber-600 rounded-full"></div>
+                  </div>
+                  <div class="min-w-0">
+                    <div class="font-medium text-slate-900">
+                      {{ product.brand }} {{ product.size }}
+                    </div>
+                    <div class="text-xs text-slate-500">
+                      {{ product.type }}
+                    </div>
+                  </div>
+                </div>
+                <div class="text-right">
+                  <div class="text-sm font-medium text-slate-900">{{ product.totalQuantity.toLocaleString() }} units</div>
+                  <div class="text-xs text-slate-500">₱{{ product.totalRevenue.toLocaleString() }}</div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <span class="text-slate-500 text-xs">Profit:</span>
+                  <div class="text-emerald-600 font-medium">₱{{ product.totalProfit.toLocaleString() }}</div>
+                </div>
+                <div>
+                  <span class="text-slate-500 text-xs">Sales Count:</span>
+                  <div class="text-slate-900">{{ product.salesCount.toLocaleString() }}</div>
+                </div>
+                <div>
+                  <span class="text-slate-500 text-xs">Avg/Sale:</span>
+                  <div class="text-slate-900">{{ Math.round(product.totalQuantity / product.salesCount) }} units</div>
+                </div>
+              </div>
+
+              <div class="text-xs text-slate-500">
+                {{ ((product.totalProfit / product.totalRevenue) * 100).toFixed(1) }}% profit margin •
+                ₱{{ Math.round(product.totalRevenue / product.salesCount).toLocaleString() }} avg revenue/sale
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>
