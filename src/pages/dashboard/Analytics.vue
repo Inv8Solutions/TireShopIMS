@@ -35,6 +35,14 @@ type DailySales = {
   revenue: number
   profit: number
   topProduct: string
+  products: Array<{
+    brand: string
+    size: string
+    type: string
+    quantity: number
+    revenue: number
+    profit: number
+  }>
 }
 
 const loading = ref(true)
@@ -141,16 +149,57 @@ function processAnalyticsData() {
         }
       })
 
+      // Create detailed product list for this day
+      const productDetails: Array<{
+        brand: string
+        size: string
+        type: string
+        quantity: number
+        revenue: number
+        profit: number
+      }> = []
+
+      // Get detailed product info from sales data for this specific date
+      const daysSales = filteredSales.filter(sale => sale.saleDate === date)
+      const productMap = new Map<string, {
+        brand: string
+        size: string
+        type: string
+        quantity: number
+        revenue: number
+        profit: number
+      }>()
+
+      daysSales.forEach(sale => {
+        const productKey = `${sale.productInfo.brand} ${sale.productInfo.size} ${sale.productInfo.type}`
+        const existing = productMap.get(productKey) || {
+          brand: sale.productInfo.brand,
+          size: sale.productInfo.size,
+          type: sale.productInfo.type,
+          quantity: 0,
+          revenue: 0,
+          profit: 0
+        }
+
+        existing.quantity += sale.quantitySold
+        existing.revenue += sale.totalAmount
+        existing.profit += sale.profit
+        productMap.set(productKey, existing)
+      })
+
+      productDetails.push(...Array.from(productMap.values()))
+      productDetails.sort((a, b) => b.quantity - a.quantity) // Sort by quantity sold descending
+
       return {
         date,
         sales: data.sales,
         revenue: data.revenue,
         profit: data.profit,
-        topProduct
+        topProduct,
+        products: productDetails
       }
     })
     .sort((a, b) => b.date.localeCompare(a.date)) // Sort by date descending
-    .slice(0, 30) // Show last 30 days
 
   // Prepare chart data (last 7 days)
   const last7Days = tableData.value.slice(0, 7).reverse()
@@ -192,9 +241,6 @@ function onPeriodChange() {
 const totalSales = computed(() => tableData.value.reduce((sum, item) => sum + item.sales, 0))
 const totalRevenue = computed(() => tableData.value.reduce((sum, item) => sum + item.revenue, 0))
 const totalProfit = computed(() => tableData.value.reduce((sum, item) => sum + item.profit, 0))
-
-// Raw sales history for detailed view
-const rawSalesHistory = computed(() => getFilteredSales())
 
 const filteredSalesHistory = computed(() => {
   let filtered = [...salesData.value]
@@ -502,6 +548,142 @@ function getChartPath() {
       </div>
     </div>
 
+    <!-- Daily Sales Performance -->
+    <div class="rounded-xl border border-slate-200 bg-white">
+      <div class="border-b border-slate-200 p-6">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 class="text-lg font-semibold text-slate-900">Daily Sales Performance</h2>
+            <p class="text-sm text-slate-600">Complete aggregated daily sales data from all transactions</p>
+          </div>
+          <div class="flex gap-3">
+            <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Export
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="loading" class="p-6">
+        <div class="flex items-center justify-center py-12">
+          <div class="text-slate-500">Loading analytics data...</div>
+        </div>
+      </div>
+
+      <div v-else class="overflow-x-auto">
+        <!-- Desktop Table -->
+        <table class="hidden w-full md:table">
+          <thead class="bg-slate-50">
+            <tr>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Date
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Products Sold
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Total Items
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Revenue
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+                Profit
+              </th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-200 bg-white">
+            <template v-for="item in tableData" :key="item.date">
+              <tr class="hover:bg-slate-50">
+                <td class="whitespace-nowrap px-6 py-4">
+                  <div class="text-sm font-medium text-slate-900">
+                    {{ new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric'
+                    }) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4">
+                  <div class="space-y-1">
+                    <div v-for="product in item.products" :key="`${product.brand}-${product.size}-${product.type}`"
+                         class="text-sm">
+                      <div class="font-medium text-slate-900">
+                        {{ product.brand }} {{ product.size }}
+                      </div>
+                      <div class="text-xs text-slate-500">
+                        {{ product.type }} • {{ product.quantity }} units • ₱{{ product.revenue.toLocaleString() }}
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td class="whitespace-nowrap px-6 py-4">
+                  <div class="text-sm text-slate-900">{{ item.sales.toLocaleString() }} units</div>
+                </td>
+                <td class="whitespace-nowrap px-6 py-4">
+                  <div class="text-sm font-medium text-slate-900">₱{{ item.revenue.toLocaleString() }}</div>
+                </td>
+                <td class="whitespace-nowrap px-6 py-4">
+                  <div class="text-sm font-medium text-emerald-600">₱{{ item.profit.toLocaleString() }}</div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <!-- Mobile Cards -->
+        <div class="divide-y divide-slate-200 md:hidden">
+          <div v-for="item in tableData" :key="item.date" class="p-4">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between">
+                <span class="font-medium text-slate-900">
+                  {{ new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', {
+                    weekday: 'short',
+                    month: 'short',
+                    day: 'numeric'
+                  }) }}
+                </span>
+                <span class="text-sm font-medium text-slate-900">₱{{ item.revenue.toLocaleString() }}</span>
+              </div>
+
+              <!-- Products sold on this day -->
+              <div class="space-y-2">
+                <div class="text-xs font-medium text-slate-600 uppercase tracking-wide">Products Sold ({{ item.products.length }} types)</div>
+                <div v-for="product in item.products" :key="`${product.brand}-${product.size}-${product.type}`"
+                     class="bg-slate-50 rounded-lg p-3">
+                  <div class="flex items-start justify-between">
+                    <div class="min-w-0">
+                      <div class="text-sm font-medium text-slate-900">
+                        {{ product.brand }} {{ product.size }}
+                      </div>
+                      <div class="text-xs text-slate-500 mt-1">
+                        {{ product.type }}
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-sm font-medium text-slate-900">{{ product.quantity }} units</div>
+                      <div class="text-xs text-slate-500">₱{{ product.revenue.toLocaleString() }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-2 gap-4 text-sm pt-2 border-t border-slate-200">
+                <div>
+                  <span class="text-slate-500">Total Items:</span>
+                  <span class="ml-1 text-slate-900">{{ item.sales.toLocaleString() }} units</span>
+                </div>
+                <div>
+                  <span class="text-slate-500">Profit:</span>
+                  <span class="ml-1 text-emerald-600">₱{{ item.profit.toLocaleString() }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- Sales History -->
     <div class="rounded-xl border border-slate-200 bg-white">
       <div class="border-b border-slate-200 p-6">
@@ -748,112 +930,8 @@ function getChartPath() {
         </div>
       </div>
     </div>
-
-    <!-- Daily Performance Summary -->
-    <div class="rounded-xl border border-slate-200 bg-white">
-      <div class="border-b border-slate-200 p-6">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 class="text-lg font-semibold text-slate-900">Daily Performance Summary</h2>
-            <p class="text-sm text-slate-600">Aggregated daily sales metrics</p>
-          </div>
-          <div class="flex gap-3">
-            <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
-              Export
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="loading" class="p-6">
-        <div class="flex items-center justify-center py-12">
-          <div class="text-slate-500">Loading analytics data...</div>
-        </div>
-      </div>
-
-      <div v-else class="overflow-x-auto">
-        <!-- Desktop Table -->
-        <table class="hidden w-full md:table">
-          <thead class="bg-slate-50">
-            <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                Date
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                Total Sales
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                Revenue
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                Profit
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
-                Top Product
-              </th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200 bg-white">
-            <tr v-for="item in tableData" :key="item.date" class="hover:bg-slate-50">
-              <td class="whitespace-nowrap px-6 py-4">
-                <div class="text-sm font-medium text-slate-900">
-                  {{ new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric'
-                  }) }}
-                </div>
-              </td>
-              <td class="whitespace-nowrap px-6 py-4">
-                <div class="text-sm text-slate-900">{{ item.sales.toLocaleString() }} units</div>
-              </td>
-              <td class="whitespace-nowrap px-6 py-4">
-                <div class="text-sm font-medium text-slate-900">₱{{ item.revenue.toLocaleString() }}</div>
-              </td>
-              <td class="whitespace-nowrap px-6 py-4">
-                <div class="text-sm font-medium text-emerald-600">₱{{ item.profit.toLocaleString() }}</div>
-              </td>
-              <td class="whitespace-nowrap px-6 py-4">
-                <div class="text-sm text-slate-900">{{ item.topProduct }}</div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <!-- Mobile Cards -->
-        <div class="divide-y divide-slate-200 md:hidden">
-          <div v-for="item in tableData" :key="item.date" class="p-4">
-            <div class="space-y-3">
-              <div class="flex items-center justify-between">
-                <span class="font-medium text-slate-900">
-                  {{ new Date(item.date + 'T00:00:00').toLocaleDateString('en-US', {
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric'
-                  }) }}
-                </span>
-                <span class="text-sm font-medium text-slate-900">₱{{ item.revenue.toLocaleString() }}</span>
-              </div>
-              <div class="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <span class="text-slate-500">Sales:</span>
-                  <span class="ml-1 text-slate-900">{{ item.sales.toLocaleString() }} units</span>
-                </div>
-                <div>
-                  <span class="text-slate-500">Profit:</span>
-                  <span class="ml-1 text-emerald-600">₱{{ item.profit.toLocaleString() }}</span>
-                </div>
-              </div>
-              <div>
-                <span class="text-xs text-slate-500">Top Product:</span>
-                <div class="mt-1 text-sm text-slate-900">{{ item.topProduct }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
   </div>
+
 </template>
 
 <style scoped></style>
